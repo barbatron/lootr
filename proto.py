@@ -28,6 +28,14 @@ import time
 import re
 import sys
 
+# --- OPTIONAL GUI VISUALIZER ---
+# To disable the visualizer display completely, comment out these lines:
+try:
+    from visualizer import LootrVisualizer
+    HAS_VISUALIZER = True
+except ImportError:
+    HAS_VISUALIZER = False
+
 # Try importing pygame for PC prototyping
 try:
     import pygame
@@ -214,6 +222,10 @@ def main():
     
     print("\nReady! Use your joystick (X/Y axis and Button 0) or move mouse + click.")
 
+    visualizer = None
+    if HAS_VISUALIZER:
+        visualizer = LootrVisualizer(400, 400)
+
     last_play_time = 0
     running = True
 
@@ -279,10 +291,20 @@ def main():
                         transfer_sound.set_volume(transfer_volume)
                         transfer_sound.play()
                     
+                    if visualizer:
+                        visualizer.set_last_picked(picked_type)
+
                     print(f"Angle: {angle_deg:5.1f}° | Amp: {amplitude:4.2f} | Picked: {picked_type:20s}")
                 
                 last_play_time = current_time
                 
+        # Draw Visualizer if enabled
+        if visualizer:
+            # Dynamic spread calculation is duplicated for drawing when not triggered
+            dynamic_spread = SPREAD_AT_CENTER - (min(1.0, amplitude) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE))
+            visualizer.draw(screen, input_x, input_y, angle_deg, amplitude, dynamic_spread, trigger_active, angles_map)
+            pygame.display.flip()
+
         # Small sleep to yield CPU
         time.sleep(0.01)
         

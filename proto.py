@@ -68,11 +68,11 @@ SPREAD_AT_CENTER = 180.0
 
 # Spread at maximum amplitude (stick fully pushed) → tight, directional selection
 # This is a HALF-ANGLE — total arc = 2 × value. 20° half = 40° total arc.
-SPREAD_AT_EDGE = 20.0
+SPREAD_AT_EDGE = 15.0
 
 # Default spread (half-angle) used when calling pick_item_for_angle without an explicit value.
 # 30° half = 60° total arc.
-DEFAULT_MAX_SPREAD = 15.0
+DEFAULT_MAX_SPREAD = 5.0
 
 def load_assets():
     """

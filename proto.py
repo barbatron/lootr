@@ -43,7 +43,12 @@ except ImportError:
 ASSETS_DIR = "assets"
 
 # Minimum time between sample triggers (milliseconds)
-PLAY_INTERVAL_MS = 180
+# Configured to 120ms to match Rust's rapid and satisfying hover-loot pacing
+PLAY_INTERVAL_MS = 175
+
+# Generic "transfer" layer sound context — plays simultaneously with the material sound
+# to glue the rapid-fire triggers together into a physical "mass loot" feeling.
+TRANSFER_LAYER_TYPE = "cloth"
 
 # Joystick deadzone: below this amplitude, no sample is triggered.
 # Prevents noise when stick is centered.
@@ -261,10 +266,18 @@ def main():
                     sound_list = sounds[picked_type]
                     sound_to_play = random.choice(sound_list)
                     
-                    # Play the sound
-                    # Volume is always max, amplitude only affects item selection spread
-                    sound_to_play.set_volume(1.0)
+                    # Play the sound with subtle organic volume variation to reduce repetitive feel
+                    material_volume = random.uniform(0.9, 1.0)
+                    sound_to_play.set_volume(material_volume)
                     sound_to_play.play()
+                    
+                    # Sneaky "transfer" layering for that iconic Rust hover-loot feeling!
+                    # Play a short generic texturing sound containing cloth/paper underneath the material
+                    if TRANSFER_LAYER_TYPE in sounds and TRANSFER_LAYER_TYPE != picked_type:
+                        transfer_sound = random.choice(sounds[TRANSFER_LAYER_TYPE])
+                        transfer_volume = random.uniform(0.4, 0.6)
+                        transfer_sound.set_volume(transfer_volume)
+                        transfer_sound.play()
                     
                     print(f"Angle: {angle_deg:5.1f}° | Amp: {amplitude:4.2f} | Picked: {picked_type:20s}")
                 

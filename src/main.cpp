@@ -19,14 +19,16 @@
 // Audio objects (Teensy Audio Library)
 // ---------------------------------------------------------------------------
 
-AudioPlaySerialflashRaw  player0;
-AudioPlaySerialflashRaw  player1;
+AudioPlaySerialflashRaw  playerMaterial0;
+AudioPlaySerialflashRaw  playerMaterial1;
+AudioPlaySerialflashRaw  playerTransfer;
 AudioMixer4              mixer;
 AudioOutputAnalog        dac;
 
-AudioConnection patchCord0(player0, 0, mixer, 0);
-AudioConnection patchCord1(player1, 0, mixer, 1);
-AudioConnection patchCordOut(mixer, 0, dac, 0);
+AudioConnection patchCord0(playerMaterial0, 0, mixer, 0);
+AudioConnection patchCord1(playerMaterial1, 0, mixer, 1);
+AudioConnection patchCord2(playerTransfer,   0, mixer, 2);
+AudioConnection patchCordOut(mixer,          0, dac,   0);
 
 // ---------------------------------------------------------------------------
 // Helpers — ported from proto.py
@@ -93,6 +95,20 @@ const char* pickItemForAngle(float inputAngle, float maxSpread,
     return files[indices[count - 1]];
 }
 
+// [PORT] Pick a random transfer sound matching the dynamic transfer layer keyword.
+const char* pickTransferItem(const char** files, int fileCount) {
+    static const char* transferCandidates[64];
+    int count = 0;
+    for (int i = 0; i < fileCount && i < 64; i++) {
+        if (strstr(files[i], TRANSFER_LAYER_KEYWORD) != nullptr) {
+            transferCandidates[count] = files[i];
+            count++;
+        }
+    }
+    if (count == 0) return nullptr;
+    return transferCandidates[random(0, count)];
+}
+
 // ---------------------------------------------------------------------------
 // Asset discovery — enumerate files on SPI flash at startup
 // ---------------------------------------------------------------------------
@@ -155,6 +171,11 @@ void setup() {
         Serial.println("WARNING: No .raw files found on flash. Upload assets first.");
     }
 
+    // Configure mixer channel gains for proper layering balance
+    mixer.gain(0, 0.95f);  // material player 0
+    mixer.gain(1, 0.95f);  // material player 1 (allows notes to overlap beautifully)
+    mixer.gain(2, 0.45f);  // transfer layer player (quiet textural backing glue)
+
     Serial.println("Ready.");
 }
 
@@ -184,12 +205,21 @@ void loop() {
         if ((now - lastPlayTime) >= PLAY_INTERVAL_MS && flashFileCount > 0) {
             const char* chosen = pickItemForAngle(angleDeg, spread, flashFiles, flashFileCount);
             if (chosen) {
-                // Play on whichever player is free
-                if (!player0.isPlaying()) {
-                    player0.play(chosen);
-                } else if (!player1.isPlaying()) {
-                    player1.play(chosen);
+                // Alternately play material sound on material0 / material1 to allow overlap!
+                static bool alternate = false;
+                if (alternate) {
+                    playerMaterial0.play(chosen);
+                } else {
+                    playerMaterial1.play(chosen);
                 }
+                alternate = !alternate;
+
+                // Play the sneaky transfer layer sound on the third player
+                const char* transferChosen = pickTransferItem(flashFiles, flashFileCount);
+                if (transferChosen && strcmp(chosen, transferChosen) != 0) {
+                    playerTransfer.play(transferChosen);
+                }
+
                 Serial.printf("Angle: %5.1f | Amp: %.2f | Spread: %4.1f | File: %s\n",
                               angleDeg, amplitude, spread, chosen);
             }

@@ -18,7 +18,11 @@
 
 // --- Timing ---------------------------------------------------------------
 
-#define PLAY_INTERVAL_MS  180   // Minimum ms between sample triggers
+#define PLAY_INTERVAL_MS  120   // Minimum ms between sample triggers (adjusted for Rust-like speed)
+
+// --- Layering -------------------------------------------------------------
+
+#define TRANSFER_LAYER_KEYWORD "cloth"  // Short tactile overlay sound to bind rapid notes together
 
 // --- Joystick -------------------------------------------------------------
 

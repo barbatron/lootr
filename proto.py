@@ -33,7 +33,7 @@ try:
     import pygame
 except ImportError:
     print("Pygame is required for the PC prototype. Please install it using:")
-    print("uv pip install pygame  (or: uv add pygame)")
+    print("uv sync  (or: uv run proto.py)")
     sys.exit(1)
 
 # ---------------------------------------------------------------------------

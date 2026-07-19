@@ -33,14 +33,13 @@ Once the angle math, layout, and "feel" are verified in the Python prototype, th
 ## Setup & Running on Mac (Prototype)
 
 1. Ensure Python 3 is installed.
-2. Set up a virtual environment and install Pygame with `uv`:
+2. Sync the project dependencies using `uv`:
    ```bash
-   uv venv
-   source .venv/bin/activate
-   uv pip install pygame
-   # Or simply: uv run python proto.py
+   uv sync
+   # Or simply run without manual setup: uv run proto.py
    ```
 3. Run the prototype:
    ```bash
+   source .venv/bin/activate
    python proto.py
    ```

@@ -1,3 +1,25 @@
+"""
+proto.py — Lootr Loot-o-mo-tron PC Prototype
+=============================================
+This file is the canonical source of truth for the Lootr audio selection logic.
+It is designed to be runnable on PC (via Pygame) for rapid iteration, and to be
+portable to C++ for the Teensy 4.0 hardware build.
+
+Hardware Target (for porting reference — see spec.md):
+  - MCU:      Teensy 4.0
+  - Input:    KY-023 analog thumbstick (X→A0, Y→A1, SW→D2)
+  - Storage:  SPI flash chip, e.g. W25Q128 (CS→D10, MOSI→D11, MISO→D12, SCK→D13)
+  - Audio:    Teensy DAC (pin 14/A14) → LM386 amp → 8Ω speaker
+  - Power:    LiPo + 5V boost converter
+
+Porting notes:
+  - All [PORT] functions/constants have direct C++ equivalents described in spec.md
+  - map_types_to_angles() → hardcoded lookup in config.h on hardware
+  - pick_item_for_angle() → port verbatim, uses only math and arrays
+  - get_angular_distance() → port verbatim, pure math
+  - PLAY_INTERVAL_MS, DEADZONE, SPREAD_* constants → config.h
+"""
+
 import os
 import glob
 import math
@@ -14,8 +36,24 @@ except ImportError:
     print("pip install pygame")
     sys.exit(1)
 
+# ---------------------------------------------------------------------------
+# [PORT] CONFIGURATION — mirrors config.h on hardware
+# ---------------------------------------------------------------------------
+
 ASSETS_DIR = "assets"
+
+# Minimum time between sample triggers (milliseconds)
 PLAY_INTERVAL_MS = 180
+
+# Joystick deadzone: below this amplitude, no sample is triggered.
+# Prevents noise when stick is centered.
+DEADZONE = 0.05
+
+# Spread at minimum amplitude (stick barely pushed) → fully random selection
+SPREAD_AT_CENTER = 180.0
+
+# Spread at maximum amplitude (stick fully pushed) → tight, directional selection
+SPREAD_AT_EDGE = 20.0
 
 def load_assets():
     """
@@ -49,10 +87,24 @@ def load_assets():
         
     return item_types
 
+# [PORT] Item-type → angle mapping.
+# On hardware, replace this function with a static lookup table in config.h.
+# Angle convention: 0° = right, 90° = down, 180° = left, 270° = up.
+ITEM_ANGLE_RULES = [
+    # (keywords,                                              angle_deg)
+    (["metal", "can", "gun", "pipe", "blade", "wire"],        270.0),  # Up    — metal/mechanical
+    (["charcoal", "sulfur", "sulphur", "stone", "ore", "coal"], 180.0),  # Left  — minerals/earth
+    (["wood", "plank", "stick", "log"],                        0.0),    # Right — wood
+    # Fallback → Down (90°)
+]
+
 def map_types_to_angles(item_types):
     """
-    Assigns an angle (in degrees) to each item type.
-    You can manually configure these later.
+    [PORT] Assigns a target angle (degrees) to each discovered item type.
+
+    Rules are defined in ITEM_ANGLE_RULES above. Anything not matched falls
+    back to 90° (down). On hardware, this becomes a static table in config.h
+    since the asset list is known at build time.
     """
     configured_angles = {}
     types_list = list(item_types.keys())
@@ -63,26 +115,35 @@ def map_types_to_angles(item_types):
         
     for item_type in types_list:
         lower_type = item_type.lower()
-        if "metal" in lower_type or "can" in lower_type or "gun" in lower_type:
-            configured_angles[item_type] = 270.0  # Straight up
-        elif "charcoal" in lower_type or "sulfur" in lower_type or "stone" in lower_type or "ore" in lower_type:
-            configured_angles[item_type] = 180.0  # Left
-        elif "wood" in lower_type:
-            configured_angles[item_type] = 0.0    # Right
-        else:
-            configured_angles[item_type] = 90.0   # Down
+        angle = 90.0  # Default: down
+        for keywords, rule_angle in ITEM_ANGLE_RULES:
+            if any(kw in lower_type for kw in keywords):
+                angle = rule_angle
+                break
+        configured_angles[item_type] = angle
         
     return configured_angles
 
+# [PORT] Pure math — port verbatim to C++.
 def get_angular_distance(angle1, angle2):
+    """Returns the shortest angular distance (0–180°) between two angles."""
     diff = abs((angle1 - angle2) % 360)
     return min(diff, 360 - diff)
 
+# [PORT] Core selection algorithm — port verbatim to C++.
 def pick_item_for_angle(input_angle, configured_angles, max_spread=45.0):
     """
-    Pick an item type based on the input angle.
-    Items closer to the angle have a higher probability.
-    max_spread defines how far (in degrees) to allow randomness.
+    [PORT] Selects an item type probabilistically based on joystick angle.
+
+    Only item types within max_spread degrees of input_angle are candidates.
+    Closer items are weighted quadratically. Falls back to the nearest item
+    if nothing is within spread.
+
+    Args:
+        input_angle:       Current joystick angle in degrees (0=right, 90=down).
+        configured_angles: Dict of {item_type: target_angle}.
+        max_spread:        Maximum angular window for candidate selection (degrees).
+                           Driven dynamically by amplitude — see SPREAD_AT_CENTER/EDGE.
     """
     if not configured_angles:
         return None
@@ -186,14 +247,11 @@ def main():
         angle_rad = math.atan2(input_y, input_x)
         angle_deg = math.degrees(angle_rad) % 360
         
-        # Deadzone handling to avoid random noise when stick is centered
-        # Lowered deadzone to 0.05 so it can still play samples in the middle
-        if amplitude > 0.05 and trigger_active:
+        # [PORT] Deadzone + dynamic spread — see DEADZONE, SPREAD_AT_CENTER/EDGE in config.
+        if amplitude > DEADZONE and trigger_active:
             if current_time - last_play_time >= PLAY_INTERVAL_MS:
-                # Dynamic spread based on amplitude:
-                # Center (amp ~ 0.0) gives 180 spread -> completely random
-                # Edge (amp ~ 1.0+) gives a tight spread of ~20 degrees
-                dynamic_spread = 180.0 - (min(1.0, amplitude) * 160.0)
+                # Dynamic spread: center stick → fully random, full push → tight selection.
+                dynamic_spread = SPREAD_AT_CENTER - (min(1.0, amplitude) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE))
                 
                 # Pick item type
                 picked_type = pick_item_for_angle(angle_deg, angles_map, max_spread=dynamic_spread)

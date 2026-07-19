@@ -187,10 +187,16 @@ def main():
         angle_deg = math.degrees(angle_rad) % 360
         
         # Deadzone handling to avoid random noise when stick is centered
-        if amplitude > 0.2 and trigger_active:
+        # Lowered deadzone to 0.05 so it can still play samples in the middle
+        if amplitude > 0.05 and trigger_active:
             if current_time - last_play_time >= PLAY_INTERVAL_MS:
+                # Dynamic spread based on amplitude:
+                # Center (amp ~ 0.0) gives 180 spread -> completely random
+                # Edge (amp ~ 1.0+) gives a tight spread of ~20 degrees
+                dynamic_spread = 180.0 - (min(1.0, amplitude) * 160.0)
+                
                 # Pick item type
-                picked_type = pick_item_for_angle(angle_deg, angles_map)
+                picked_type = pick_item_for_angle(angle_deg, angles_map, max_spread=dynamic_spread)
                 
                 if picked_type:
                     # Pick random variation
@@ -198,9 +204,8 @@ def main():
                     sound_to_play = random.choice(sound_list)
                     
                     # Play the sound
-                    # We can use amplitude to control the volume!
-                    volume = min(1.0, max(0.0, amplitude))
-                    sound_to_play.set_volume(volume)
+                    # Volume is always max, amplitude only affects item selection spread
+                    sound_to_play.set_volume(1.0)
                     sound_to_play.play()
                     
                     print(f"Angle: {angle_deg:5.1f}° | Amp: {amplitude:4.2f} | Picked: {picked_type:20s}")

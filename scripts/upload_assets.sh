@@ -14,7 +14,7 @@
 #   4. Builds and flashes the main Lootr firmware back
 #
 # Requirements:
-#   - PlatformIO CLI  (pip install platformio)
+#   - PlatformIO CLI  (uv pip install platformio)
 #   - Python 3
 #   - Teensy connected via USB
 
@@ -31,7 +31,7 @@ BACKUP_SRC="src/main.cpp.bak"
 # ---------------------------------------------------------------------------
 
 if ! command -v pio &>/dev/null; then
-    echo "Error: 'pio' not found. Install with: pip install platformio"
+    echo "Error: 'pio' not found. Install with: uv pip install platformio"
     exit 1
 fi
 

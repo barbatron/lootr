@@ -15,7 +15,7 @@ except ImportError:
     sys.exit(1)
 
 ASSETS_DIR = "assets"
-PLAY_INTERVAL_MS = 200
+PLAY_INTERVAL_MS = 180
 
 def load_assets():
     """

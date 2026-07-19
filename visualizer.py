@@ -107,7 +107,7 @@ class LootrVisualizer:
             (f"X: {input_x:5.2f} | Y: {input_y:5.2f}", (180, 180, 180)),
             (f"Angle : {angle_deg:5.1f}°", (255, 255, 255)),
             (f"Amp   : {amplitude:5.2f}", (255, 255, 255)),
-            (f"Spread: ±{dynamic_spread:4.1f}°", (100, 200, 255)),
+            (f"Spread: ±{dynamic_spread:4.1f}° ({dynamic_spread*2:.0f}° total)", (100, 200, 255)),
             (f"Trigger: {'ACTIVE' if trigger_active else 'INACTIVE'}", color_triggered),
         ]
 

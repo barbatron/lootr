@@ -15,7 +15,7 @@ except ImportError:
     sys.exit(1)
 
 ASSETS_DIR = "assets"
-PLAY_INTERVAL_MS = 500
+PLAY_INTERVAL_MS = 200
 
 def load_assets():
     """
@@ -58,19 +58,19 @@ def map_types_to_angles(item_types):
     types_list = list(item_types.keys())
     types_list.sort()
     
-    # Distribute them evenly around 360 degrees for testing
-    num_types = len(types_list)
-    if num_types == 0:
+    if not types_list:
         return {}
         
-    angle_step = 360.0 / num_types
-    for i, item_type in enumerate(types_list):
-        configured_angles[item_type] = i * angle_step
-        
-    # --- MANUAL CONFIGURATION OVERRIDE EXAMPLE ---
-    # You can redefine or overlap angles here. For example:
-    # configured_angles["stone"] = 45.0
-    # configured_angles["bullet"] = 45.0  # Multiple items at the same angle!
+    for item_type in types_list:
+        lower_type = item_type.lower()
+        if "metal" in lower_type or "can" in lower_type or "gun" in lower_type:
+            configured_angles[item_type] = 270.0  # Straight up
+        elif "charcoal" in lower_type or "sulfur" in lower_type or "stone" in lower_type or "ore" in lower_type:
+            configured_angles[item_type] = 180.0  # Left
+        elif "wood" in lower_type:
+            configured_angles[item_type] = 0.0    # Right
+        else:
+            configured_angles[item_type] = 90.0   # Down
         
     return configured_angles
 
@@ -78,27 +78,31 @@ def get_angular_distance(angle1, angle2):
     diff = abs((angle1 - angle2) % 360)
     return min(diff, 360 - diff)
 
-def pick_item_for_angle(input_angle, configured_angles):
+def pick_item_for_angle(input_angle, configured_angles, max_spread=45.0):
     """
     Pick an item type based on the input angle.
     Items closer to the angle have a higher probability.
+    max_spread defines how far (in degrees) to allow randomness.
     """
+    if not configured_angles:
+        return None
+        
     weights = []
     types = []
     
     for item_type, target_angle in configured_angles.items():
         dist = get_angular_distance(input_angle, target_angle)
-        # Closer distance = higher weight
-        # adding a small epsilon so even directly opposite has a tiny chance
-        # or you can threshold it so it only considers items within e.g. 45 degrees
-        weight = max(0, 180 - dist)
-        weight = weight ** 2  # curve it so closer items are favored significantly more
         
-        types.append(item_type)
-        weights.append(weight)
-        
-    if not types:
-        return None
+        if dist <= max_spread:
+            weight = max(0, max_spread - dist)
+            weight = weight ** 2  # curve it so closer items are favored significantly more
+            
+            types.append(item_type)
+            weights.append(weight)
+            
+    if not types or sum(weights) == 0:
+        # Fallback to the closest item if nothing is strictly within the spread
+        return min(configured_angles.keys(), key=lambda k: get_angular_distance(input_angle, configured_angles[k]))
         
     # Random choice weighted by distance
     return random.choices(types, weights=weights, k=1)[0]

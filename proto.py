@@ -52,7 +52,7 @@ ASSETS_DIR = "assets"
 
 # Minimum time between sample triggers (milliseconds)
 # Configured to 120ms to match Rust's rapid and satisfying hover-loot pacing
-PLAY_INTERVAL_MS = 175
+PLAY_INTERVAL_MS = 190
 
 # Generic "transfer" layer sound context — plays simultaneously with the material sound
 # to glue the rapid-fire triggers together into a physical "mass loot" feeling.
@@ -60,7 +60,7 @@ TRANSFER_LAYER_TYPE = "cloth"
 
 # Joystick deadzone: below this amplitude, no sample is triggered.
 # Prevents noise when stick is centered.
-DEADZONE = 0.05
+DEADZONE = 0.01
 
 # Spread at minimum amplitude (stick barely pushed) → fully random selection
 # This is a HALF-ANGLE — total arc = 2 × value. 180° = full circle (random).
@@ -301,7 +301,7 @@ def main():
                     # Play a short generic texturing sound containing cloth/paper underneath the material
                     if TRANSFER_LAYER_TYPE in sounds and TRANSFER_LAYER_TYPE != picked_type:
                         transfer_sound = random.choice(sounds[TRANSFER_LAYER_TYPE])
-                        transfer_volume = random.uniform(0.4, 0.6)
+                        transfer_volume = random.uniform(0.2, 0.4)
                         transfer_sound.set_volume(transfer_volume)
                         transfer_sound.play()
                     

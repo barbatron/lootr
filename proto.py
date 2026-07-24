@@ -74,6 +74,34 @@ SPREAD_AT_EDGE = 15.0
 # 30° half = 60° total arc.
 DEFAULT_MAX_SPREAD = 5.0
 
+# [PORT] Item-type → angle mapping.
+# On hardware, replace this function with a static lookup table in config.h.
+# Angle convention: 0° = right, 90° = down, 180° = left, 270° = up.
+ITEM_ANGLE_RULES = [
+    # (keywords,                                              angle_deg)
+    (["metal", "can", "gun", "pipe", "blade", "wire"],        270.0),  # Up    — metal/mechanical
+    (["charcoal", "sulfur", "sulphur", "stone", "ore", "coal"], 180.0),  # Left  — minerals/earth
+    (["wood", "plank", "stick", "log"],                        0.0),    # Right — wood
+    # Fallback → Down (90°)
+]
+
+def get_material_group(filename: str) -> str:
+    # 1. Strip the standard UI prefixes and file extensions
+    core = re.sub(r"^(?:\./)?ui-(?:liquid-container-)?(?:drop|pickup)-|-(?:\d+)(\.wav)?$", "", filename)
+     
+    # 2. Map items with implicit materials to their base group
+    if any(m in core for m in ["metal", "can", "chainlink", "spring"]):
+        return "metal"
+    if "wood" in core:
+        return "wood"
+    if "plastic" in core:
+        return "plastic"
+    if "liquid-container" in filename:
+        return "water"
+        
+    # 3. Fallback to the first descriptive word (e.g., "charcol", "bone", "stone")
+    return core.split("-")[0]
+
 def load_assets():
     """
     Scans the assets directory and groups variations by item type.
@@ -87,35 +115,14 @@ def load_assets():
     
     for filepath in files:
         filename = os.path.basename(filepath)
-        name_no_ext = os.path.splitext(filename)[0]
-        
-        # Remove 'ui-pickup-' prefix if it exists
-        if name_no_ext.startswith("ui-pickup-"):
-            name_no_ext = name_no_ext[len("ui-pickup-"):]
-            
-        # Try to find a trailing number denoting the variation (e.g., -1, -001)
-        match = re.match(r"(.*)-(\d+)$", name_no_ext)
-        if match:
-            item_type = match.group(1)
-        else:
-            item_type = name_no_ext
+        item_type = get_material_group(filename)
             
         if item_type not in item_types:
             item_types[item_type] = []
         item_types[item_type].append(filepath)
-        
+    
+    print(f"Item types:\n{"\n".join(item_types.keys())}")
     return item_types
-
-# [PORT] Item-type → angle mapping.
-# On hardware, replace this function with a static lookup table in config.h.
-# Angle convention: 0° = right, 90° = down, 180° = left, 270° = up.
-ITEM_ANGLE_RULES = [
-    # (keywords,                                              angle_deg)
-    (["metal", "can", "gun", "pipe", "blade", "wire"],        270.0),  # Up    — metal/mechanical
-    (["charcoal", "sulfur", "sulphur", "stone", "ore", "coal"], 180.0),  # Left  — minerals/earth
-    (["wood", "plank", "stick", "log"],                        0.0),    # Right — wood
-    # Fallback → Down (90°)
-]
 
 def map_types_to_angles(item_types):
     """
@@ -189,6 +196,9 @@ def pick_item_for_angle(input_angle, configured_angles, max_spread=DEFAULT_MAX_S
 
 
 def main():
+    print("Loading assets...")
+    item_variations = load_assets()
+
     pygame.init()
     pygame.mixer.init()
     
@@ -206,8 +216,6 @@ def main():
     screen = pygame.display.set_mode((400, 400))
     pygame.display.set_caption("Lootr Audio Tester")
     
-    print("Loading assets...")
-    item_variations = load_assets()
     if not item_variations:
         print(f"No WAV files found in '{ASSETS_DIR}'")
         return

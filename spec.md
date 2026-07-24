@@ -8,14 +8,14 @@ to generate or update the Teensy 4.0 C++ sketch.
 
 ## Hardware Bill of Materials
 
-| Component    | Part / Notes                                                              |
-| ------------ | ------------------------------------------------------------------------- |
-| MCU          | Teensy 4.0                                                                |
-| Input        | KY-023 analog thumbstick module (X, Y potentiometers + push-button)       |
-| Storage      | SPI NOR flash, e.g. Winbond W25Q128 (16 MB, 3.3V, SPI)                    |
-| Audio output | Teensy DAC (pin 14 / A14) → LM386 audio amp → 8Ω speaker                  |
-| Power        | 3.7V LiPo → MT3608 (or similar) boost converter → 5V rail                 |
-| Misc         | 10kΩ volume potentiometer, 250µF output cap, 10µF + 10Ω stability network |
+| Component    | Part / Notes                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| MCU          | Teensy 4.0                                                                                             |
+| Input        | KY-023 analog thumbstick module (X, Y potentiometers + push-button)                                    |
+| Storage      | MicroSD card reader (SPI interface, 3.3V)                                                              |
+| Audio output | Teensy DAC (pin 14 / A14) → LM386 audio amp → 8Ω speaker                                               |
+| Power        | 3.7V LiPo → MT3608 (or similar) boost converter → 5V rail                                              |
+| Misc         | MicroSD card (any capacity), 10kΩ volume potentiometer, 250µF output cap, 10µF + 10Ω stability network |
 
 ---
 
@@ -34,19 +34,19 @@ to generate or update the Teensy 4.0 C++ sketch.
 > ADC reads 0–1023. Midpoint ≈ 512. Normalise to -1.0–1.0:
 > `float x = (analogRead(A0) - 512) / 512.0f;`
 
-### SPI Flash → Teensy 4.0
+### MicroSD Card Reader → Teensy 4.0
 
-| Flash Pin | Teensy Pin |
-| --------- | ---------- |
-| CS        | D10        |
-| MOSI      | D11        |
-| MISO      | D12        |
-| SCK       | D13        |
-| VCC       | 3.3V       |
-| GND       | GND        |
+| SD Reader Pin | Teensy Pin |
+| ------------- | ---------- |
+| CS            | D10        |
+| MOSI          | D11        |
+| MISO          | D12        |
+| SCK           | D13        |
+| VCC           | 3.3V       |
+| GND           | GND        |
 
-Recommended library: **SerialFlash** (by PJRC) or **Adafruit SPIFlash +
-LittleFS**.
+Recommended library: **SD** (by PJRC, bundled with Teensyduino) — supports
+`AudioPlaySdRaw`.
 
 ### Audio Output
 
@@ -68,7 +68,7 @@ LittleFS**.
 
 ## Audio Asset Format
 
-Files stored on SPI flash should follow this naming convention:
+Files stored on the microSD card should follow this naming convention:
 
 ```
 <type>-<variation>.raw
@@ -76,14 +76,18 @@ Files stored on SPI flash should follow this naming convention:
 
 - **type**: item category keyword (see angle rules below)
 - **variation**: zero-padded integer, e.g. `01`, `02`
-- **Format**: 16-bit PCM, 44100 Hz, mono (required by SerialFlash /
-  AudioPlaySerialflashRaw)
+- **Format**: 16-bit PCM, 44100 Hz, mono (required by Teensy Audio Library's
+  `AudioPlaySdRaw`)
+- **Location**: Files should be in the root directory or a dedicated `/audio/`
+  folder on the microSD card
 
 Convert WAV → RAW with:
 
 ```bash
 sox input.wav -r 44100 -c 1 -e signed -b 16 output.raw
 ```
+
+Then copy all `.raw` files to the microSD card.
 
 ---
 
@@ -145,9 +149,9 @@ spread = SPREAD_AT_CENTER - clamp(amplitude, 0, 1) * (SPREAD_AT_CENTER - SPREAD_
 
 ```ini
 lib_deps =
-    SerialFlash          ; SPI flash access + AudioPlaySerialflashRaw
     Bounce2              ; Trigger button debouncing
-    ; Teensy Audio Library is bundled with Teensyduino — no separate entry needed
+    ; SD library (bundled with Teensyduino) for microSD card access
+    ; Teensy Audio Library (bundled with Teensyduino) for AudioPlaySdRaw
 ```
 
 ---
@@ -163,5 +167,6 @@ lib_deps =
 - [ ] `PLAY_INTERVAL_MS`, `DEADZONE`, `SPREAD_*` → `#define` in `config.h`
 - [ ] ADC normalisation: `(analogRead(pin) - 512) / 512.0f`
 - [ ] Trigger: `digitalRead(SW_PIN) == LOW` (active-low with pull-up)
-- [ ] Audio playback: `AudioPlaySerialflashRaw` + `AudioMixer4` +
-      `AudioOutputAnalog`
+- [ ] Audio playback: `AudioPlaySdRaw` + `AudioMixer4` + `AudioOutputAnalog`
+- [ ] SD card initialization: `SD.begin(BUILTIN_SDCARD)` or
+      `SD.begin(chipSelectPin)`

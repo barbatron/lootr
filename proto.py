@@ -121,7 +121,9 @@ def load_assets():
             item_types[item_type] = []
         item_types[item_type].append(filepath)
     
-    print(f"Item types:\n{"\n".join(item_types.keys())}")
+    print("Item types discovered:")
+    for item_type, variations in item_types.items():
+        print(f"  {item_type}: {len(variations)} variations")
     return item_types
 
 def map_types_to_angles(item_types):

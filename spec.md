@@ -27,12 +27,12 @@ to generate or update the Teensy 4.0 C++ sketch.
 | -------------- | ----------- | -------------------------------------------- |
 | VCC            | 3.3V        |                                              |
 | GND            | GND         |                                              |
-| VRx            | A0 (pin 14) | Joystick X axis                              |
-| VRy            | A1 (pin 15) | Joystick Y axis                              |
+| VRx            | A2 (pin 16) | Joystick X axis                              |
+| VRy            | A3 (pin 17) | Joystick Y axis                              |
 | SW             | D2          | Trigger button; use INPUT_PULLUP, active LOW |
 
 > ADC reads 0–1023. Midpoint ≈ 512. Normalise to -1.0–1.0:
-> `float x = (analogRead(A0) - 512) / 512.0f;`
+> `float x = (analogRead(A2) - 512) / 512.0f;`
 
 ### MicroSD Card Reader → Teensy 4.0
 
@@ -52,7 +52,7 @@ Recommended library: **SD** (by PJRC, bundled with Teensyduino) — supports
 
 |                   |                                                                               |
 | ----------------- | ----------------------------------------------------------------------------- |
-| Teensy DAC        | Pin A14 (pin 14 — also used for VRx; **route VRx to A1 instead if conflict**) |
+| Teensy DAC        | **Pin 14 (A0)** — used exclusively by AudioOutputAnalog. **Do not connect anything else to pin 14.** |
 | DAC → LM386 in+   | Via 10kΩ volume pot wiper                                                     |
 | LM386 pin 6 (Vcc) | 5V rail from boost converter                                                  |
 | LM386 pin 4 (GND) | GND                                                                           |

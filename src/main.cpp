@@ -4,11 +4,11 @@
 // Ported from proto.py. See spec.md for full porting guide and wiring.
 //
 // Audio pipeline:
-//   SerialFlash (SPI) → AudioPlaySerialflashRaw → AudioMixer4 → AudioOutputAnalog
+//   SD card (SPI) → AudioPlaySdRaw → AudioMixer4 → AudioOutputAnalog
 
 #include <Arduino.h>
 #include <Audio.h>
-#include <SerialFlash.h>
+#include <SD.h>
 #include <Bounce2.h>
 #include <math.h>
 #include <string.h>
@@ -19,9 +19,9 @@
 // Audio objects (Teensy Audio Library)
 // ---------------------------------------------------------------------------
 
-AudioPlaySerialflashRaw  playerMaterial0;
-AudioPlaySerialflashRaw  playerMaterial1;
-AudioPlaySerialflashRaw  playerTransfer;
+AudioPlaySdRaw  playerMaterial0;
+AudioPlaySdRaw  playerMaterial1;
+AudioPlaySdRaw  playerTransfer;
 AudioMixer4              mixer;
 AudioOutputAnalog        dac;
 
@@ -110,27 +110,32 @@ const char* pickTransferItem(const char** files, int fileCount) {
 }
 
 // ---------------------------------------------------------------------------
-// Asset discovery — enumerate files on SPI flash at startup
+// Asset discovery — enumerate .raw files in the root of the SD card
 // ---------------------------------------------------------------------------
 
-static const char* flashFiles[64];
-static int         flashFileCount = 0;
+static const char* sdFiles[64];
+static int         sdFileCount = 0;
 
 void discoverAssets() {
-    flashFileCount = 0;
-    SerialFlash.opendir();
+    sdFileCount = 0;
+    File root = SD.open("/");
     static char nameBuf[64][32];
-    while (flashFileCount < 64) {
-        uint32_t size;
-        if (!SerialFlash.readdir(nameBuf[flashFileCount], 32, size)) break;
-        // Only include .raw files
-        const char* ext = strrchr(nameBuf[flashFileCount], '.');
-        if (ext && strcmp(ext, ".raw") == 0) {
-            flashFiles[flashFileCount] = nameBuf[flashFileCount];
-            flashFileCount++;
+    while (sdFileCount < 64) {
+        File entry = root.openNextFile();
+        if (!entry) break;
+        if (entry.isDirectory()) { entry.close(); continue; }
+        const char* name = entry.name();
+        const char* ext  = strrchr(name, '.');
+        if (ext && strcasecmp(ext, ".raw") == 0) {
+            strncpy(nameBuf[sdFileCount], name, 31);
+            nameBuf[sdFileCount][31] = '\0';
+            sdFiles[sdFileCount] = nameBuf[sdFileCount];
+            sdFileCount++;
         }
+        entry.close();
     }
-    Serial.printf("Discovered %d audio files on flash.\n", flashFileCount);
+    root.close();
+    Serial.printf("Discovered %d audio files on SD card.\n", sdFileCount);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,16 +164,16 @@ void setup() {
     pinMode(PIN_JOYSTICK_X, INPUT);
     pinMode(PIN_JOYSTICK_Y, INPUT);
 
-    // SPI Flash
-    if (!SerialFlash.begin(PIN_FLASH_CS)) {
-        Serial.println("ERROR: SPI flash not found. Check wiring.");
+    // SD card
+    if (!SD.begin(PIN_SD_CS)) {
+        Serial.println("ERROR: SD card not found. Check wiring/card.");
         while (1);
     }
 
     discoverAssets();
 
-    if (flashFileCount == 0) {
-        Serial.println("WARNING: No .raw files found on flash. Upload assets first.");
+    if (sdFileCount == 0) {
+        Serial.println("WARNING: No .raw files found on SD card. Copy assets first.");
     }
 
     // Configure mixer channel gains for proper layering balance
@@ -202,8 +207,8 @@ void loop() {
     unsigned long now = millis();
 
     if (amplitude > DEADZONE && triggerActive) {
-        if ((now - lastPlayTime) >= PLAY_INTERVAL_MS && flashFileCount > 0) {
-            const char* chosen = pickItemForAngle(angleDeg, spread, flashFiles, flashFileCount);
+        if ((now - lastPlayTime) >= PLAY_INTERVAL_MS && sdFileCount > 0) {
+            const char* chosen = pickItemForAngle(angleDeg, spread, sdFiles, sdFileCount);
             if (chosen) {
                 // Alternately play material sound on material0 / material1 to allow overlap!
                 static bool alternate = false;
@@ -215,7 +220,7 @@ void loop() {
                 alternate = !alternate;
 
                 // Play the sneaky transfer layer sound on the third player
-                const char* transferChosen = pickTransferItem(flashFiles, flashFileCount);
+                const char* transferChosen = pickTransferItem(sdFiles, sdFileCount);
                 if (transferChosen && strcmp(chosen, transferChosen) != 0) {
                     playerTransfer.play(transferChosen);
                 }

@@ -7,13 +7,15 @@
 
 // --- Pin assignments -------------------------------------------------------
 
-#define PIN_JOYSTICK_X   A0   // KY-023 VRx
-#define PIN_JOYSTICK_Y   A1   // KY-023 VRy
+#define PIN_JOYSTICK_X   A2   // KY-023 VRx → pin 16 (A0/pin 14 is DAC output, avoid conflict)
+#define PIN_JOYSTICK_Y   A3   // KY-023 VRy → pin 17
 #define PIN_TRIGGER      2    // KY-023 SW (active LOW, INPUT_PULLUP)
 
-#define PIN_FLASH_CS     10   // SPI flash chip-select
+#define PIN_SD_CS        10   // MicroSD card reader chip-select (SPI)
+// SPI bus: MOSI=11, MISO=12, SCK=13 (Teensy 4.0 hardware SPI defaults)
 
-// Audio out via Teensy DAC (A14) is used automatically by AudioOutputAnalog.
+// Audio out via Teensy DAC (pin 14/A0) is used automatically by AudioOutputAnalog.
+// Do NOT use pin 14 or A0 for anything else.
 // If switching to I2S, set up MCLK=22, BCLK=21, LRCLK=20, DIN=7.
 
 // --- Timing ---------------------------------------------------------------

@@ -1,60 +1,78 @@
 // Lootr — Hardware Test Sketch
 //
-// Drop-in replacement for main.cpp that uses LittleFS (internal Teensy flash)
-// instead of an SD card, and exposes the filesystem over USB via MTP so you
-// can drag-and-drop .raw files from your Mac without extra hardware.
+// Uses LittleFS (internal Teensy flash) instead of an SD card.
+// Two build modes controlled by the PlatformIO environment:
 //
-// Audio pipeline:
-//   LittleFS (internal flash) → AudioPlayQueue (streaming) → AudioMixer4 → AudioOutputAnalog
+//   teensy40_hwtest          — LittleFS + MTP (USB drive in Finder)
+//                              Use this FIRST to load .raw files onto the Teensy.
 //
-// Usage:
-//   1. Run: ./scripts/prepare_assets_hw_test.sh
-//   2. Flash: pio run -e teensy40_hwtest --target upload
-//   3. Teensy mounts as "Lootr Test" in Finder
-//   4. Copy assets_test_raw/*.raw onto the drive, then eject
-//   5. Press reset — joystick and audio are now live
+//   teensy40_hwtest_usbaudio — LittleFS + USB Audio output
+//                              After loading files, flash this and select
+//                              "Teensy USB Audio" in macOS Sound settings.
 //
-// NOTE: If you generated assets at a sample rate other than 44100 Hz, set
+// Files survive reflashing — LittleFS is non-volatile.
+//
+// Workflow:
+//   1. ./scripts/prepare_assets_hw_test.sh
+//   2. pio run -e teensy40_hwtest --target upload
+//   3. Drag assets_test_raw/*.raw onto "Lootr Test" USB drive, eject
+//   4. pio run -e teensy40_hwtest_usbaudio --target upload
+//   5. System Preferences → Sound → Output → "Teensy USB Audio"
+//   6. Use joystick
+//
+// NOTE: If you generated assets at a non-default sample rate, set
 //   AUDIO_SAMPLE_RATE_EXACT below to match before flashing.
 
 #include <Arduino.h>
 #include <Audio.h>
 #include <LittleFS.h>
-#include <MTP_Teensy.h>
 #include <Bounce2.h>
 #include <math.h>
 #include <string.h>
 
+#ifndef USB_AUDIO_OUT
+#include <MTP_Teensy.h>
+#endif
+
 #include "config.h"
 
-// ---------------------------------------------------------------------------
-// Sample rate — must match the rate used when preparing assets.
-// Default 44100 Hz. Change to e.g. 22050.0f if you used --rate 22050.
-// ---------------------------------------------------------------------------
+// Uncomment and set if you used --rate XXXX when preparing assets:
 // #define AUDIO_SAMPLE_RATE_EXACT 22050.0f
 
 // ---------------------------------------------------------------------------
 // Audio objects
-// AudioPlayQueue accepts raw PCM pushed from the main loop (LittleFS reads).
+// AudioPlayQueue streams PCM chunks from LittleFS files each loop iteration.
+// Output: USB audio (usbaudio env) or analog DAC (mtp env — nothing connected).
 // ---------------------------------------------------------------------------
 
 AudioPlayQueue    playerMaterial0;
 AudioPlayQueue    playerMaterial1;
 AudioPlayQueue    playerTransfer;
 AudioMixer4       mixer;
-AudioOutputAnalog dac;
 
-AudioConnection patchCord0(playerMaterial0, 0, mixer, 0);
-AudioConnection patchCord1(playerMaterial1, 0, mixer, 1);
-AudioConnection patchCord2(playerTransfer,   0, mixer, 2);
-AudioConnection patchCordOut(mixer,          0, dac,   0);
+#ifdef USB_AUDIO_OUT
+// Stereo USB audio — Mac sees Teensy as a sound output device.
+AudioOutputUSB    audioOut;
+AudioConnection patchCord0(playerMaterial0, 0, mixer,    0);
+AudioConnection patchCord1(playerMaterial1, 0, mixer,    1);
+AudioConnection patchCord2(playerTransfer,   0, mixer,    2);
+AudioConnection patchCordL(mixer,            0, audioOut, 0);  // left
+AudioConnection patchCordR(mixer,            0, audioOut, 1);  // right
+#else
+// Analog DAC output — used by MTP build (nothing connected, but compiles fine).
+AudioOutputAnalog audioOut;
+AudioConnection patchCord0(playerMaterial0, 0, mixer,    0);
+AudioConnection patchCord1(playerMaterial1, 0, mixer,    1);
+AudioConnection patchCord2(playerTransfer,   0, mixer,    2);
+AudioConnection patchCordOut(mixer,          0, audioOut, 0);
+#endif
 
 // ---------------------------------------------------------------------------
 // LittleFS — internal flash partition
 // ---------------------------------------------------------------------------
 
 LittleFS_Program fs;
-#define FS_SIZE (1024 * 1024)  // 1 MB; reduce if sketch grows too large
+#define LOOTR_FS_SIZE (1024 * 1024)  // 1 MB; reduce if sketch grows too large
 
 // ---------------------------------------------------------------------------
 // Audio streaming state
@@ -240,18 +258,24 @@ void setup() {
     pinMode(PIN_JOYSTICK_Y, INPUT);
 
     // LittleFS
-    if (!fs.begin(FS_SIZE)) {
+    if (!fs.begin(LOOTR_FS_SIZE)) {
         Serial.println("ERROR: LittleFS_Program could not be initialised.");
         while (1);
     }
     Serial.printf("LittleFS OK — %llu KB used of %llu KB\n",
                   fs.usedSize() / 1024, fs.totalSize() / 1024);
 
-    // MTP — exposes LittleFS as a USB drive so you can drag files onto it
+#ifdef USB_AUDIO_OUT
+    // USB Audio mode: files already on LittleFS from a previous MTP flash.
+    Serial.println("USB Audio mode.");
+    Serial.println("Select 'Teensy USB Audio' in macOS System Settings > Sound > Output.");
+#else
+    // MTP mode: expose LittleFS as a USB drive for file transfer.
     MTP.begin();
     MTP.addFilesystem(fs, "Lootr Test");
-    Serial.println("MTP active. Teensy should appear as 'Lootr Test' on your Mac.");
-    Serial.println("Copy *.raw files onto the drive, then press reset.");
+    Serial.println("MTP active. Drag *.raw files onto 'Lootr Test' in Finder.");
+    Serial.println("Then flash teensy40_hwtest_usbaudio to play.");
+#endif
     Serial.println("");
 
     discoverAssets();
@@ -268,8 +292,10 @@ void setup() {
 // ---------------------------------------------------------------------------
 
 void loop() {
+#ifndef USB_AUDIO_OUT
     // Keep MTP responsive while the USB drive is mounted
     MTP.loop();
+#endif
 
     // Keep the audio queues topped up with data from open files
     updateAudioFeeders();

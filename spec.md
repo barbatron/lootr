@@ -50,15 +50,15 @@ Recommended library: **SD** (by PJRC, bundled with Teensyduino) — supports
 
 ### Audio Output
 
-|                   |                                                                               |
-| ----------------- | ----------------------------------------------------------------------------- |
+|                   |                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
 | Teensy DAC        | **Pin 14 (A0)** — used exclusively by AudioOutputAnalog. **Do not connect anything else to pin 14.** |
-| DAC → LM386 in+   | Via 10kΩ volume pot wiper                                                     |
-| LM386 pin 6 (Vcc) | 5V rail from boost converter                                                  |
-| LM386 pin 4 (GND) | GND                                                                           |
-| LM386 pin 5 (out) | 250µF cap → speaker+                                                          |
-| Speaker−          | GND                                                                           |
-| Pin 7 stability   | 10µF + 10Ω in series, to GND                                                  |
+| DAC → LM386 in+   | Via 10kΩ volume pot wiper                                                                            |
+| LM386 pin 6 (Vcc) | 5V rail from boost converter                                                                         |
+| LM386 pin 4 (GND) | GND                                                                                                  |
+| LM386 pin 5 (out) | 250µF cap → speaker+                                                                                 |
+| Speaker−          | GND                                                                                                  |
+| Pin 7 stability   | 10µF + 10Ω in series, to GND                                                                         |
 
 > **Note**: If using the Teensy Audio Library with I2S output instead of raw
 > DAC, connect an I2S DAC breakout (e.g. PCM5102) to Teensy pins 7 (LRCLK), 8

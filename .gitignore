@@ -441,3 +441,4 @@ __marimo__/
 /assets_raw
 .pio
 assets_test_raw
+.DS_Store

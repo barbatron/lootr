@@ -41,25 +41,24 @@
 
 // ---------------------------------------------------------------------------
 // Audio objects
-// AudioPlayQueue streams PCM chunks from LittleFS files each loop iteration.
+// AudioPlayMemory plays directly from a RAM pointer via the audio interrupt.
+// No main-loop feeding required — eliminates crackling from buffer underruns.
 // Output: USB audio (usbaudio env) or analog DAC (mtp env — nothing connected).
 // ---------------------------------------------------------------------------
 
-AudioPlayQueue    playerMaterial0;
-AudioPlayQueue    playerMaterial1;
-AudioPlayQueue    playerTransfer;
+AudioPlayMemory   playerMaterial0;
+AudioPlayMemory   playerMaterial1;
+AudioPlayMemory   playerTransfer;
 AudioMixer4       mixer;
 
 #ifdef USB_AUDIO_OUT
-// Stereo USB audio — Mac sees Teensy as a sound output device.
 AudioOutputUSB    audioOut;
 AudioConnection patchCord0(playerMaterial0, 0, mixer,    0);
 AudioConnection patchCord1(playerMaterial1, 0, mixer,    1);
 AudioConnection patchCord2(playerTransfer,   0, mixer,    2);
-AudioConnection patchCordL(mixer,            0, audioOut, 0);  // left
-AudioConnection patchCordR(mixer,            0, audioOut, 1);  // right
+AudioConnection patchCordL(mixer,            0, audioOut, 0);
+AudioConnection patchCordR(mixer,            0, audioOut, 1);
 #else
-// Analog DAC output — used by MTP build (nothing connected, but compiles fine).
 AudioOutputAnalog audioOut;
 AudioConnection patchCord0(playerMaterial0, 0, mixer,    0);
 AudioConnection patchCord1(playerMaterial1, 0, mixer,    1);
@@ -75,87 +74,67 @@ LittleFS_Program fs;
 #define LOOTR_FS_SIZE (1024 * 1024)  // 1 MB; reduce if sketch grows too large
 
 // ---------------------------------------------------------------------------
-// Audio streaming state
-// Each active file is read in 128-sample (256-byte) chunks and pushed into
-// its AudioPlayQueue. Call updateAudioFeeders() every loop iteration.
+// Sound library — all files pre-loaded into RAM at startup.
+// AudioPlayMemory expects: first uint32 = (type<<24)|numSamples, then PCM data.
+// type=1 means signed 16-bit PCM, matching our .raw format exactly.
 // ---------------------------------------------------------------------------
 
-struct PlayerState {
-    AudioPlayQueue& queue;
-    File            file;
-    bool            active = false;
+struct SoundEntry {
+    char      name[32];
+    uint32_t* data   = nullptr;  // header word + PCM samples, malloc'd
+    size_t    bytes  = 0;        // total allocation size
 };
 
-static PlayerState matPlayers[2] = { {playerMaterial0}, {playerMaterial1} };
-static PlayerState tfPlayer      = { playerTransfer };
-
-void startPlay(PlayerState& p, const char* filename) {
-    if (p.file) p.file.close();
-    p.file   = fs.open(filename, FILE_READ);
-    p.active = (bool)p.file;
-    if (!p.active) {
-        Serial.printf("ERROR: cannot open '%s'\n", filename);
-    }
-}
-
-static void feedPlayer(PlayerState& p) {
-    if (!p.active) return;
-    // Fill every available queue slot to keep the pipeline topped up.
-    while (p.queue.available() > 0) {
-        int16_t* buf = p.queue.getBuffer();
-        if (!buf) break;
-        int n = p.file.read((uint8_t*)buf, 128 * sizeof(int16_t));
-        if (n <= 0) {
-            // File exhausted — silence-pad this last buffer and stop.
-            memset(buf, 0, 128 * sizeof(int16_t));
-            p.queue.playBuffer();
-            p.file.close();
-            p.active = false;
-            return;
-        }
-        if (n < (int)(128 * sizeof(int16_t))) {
-            memset((uint8_t*)buf + n, 0, 128 * sizeof(int16_t) - n);
-        }
-        p.queue.playBuffer();
-    }
-}
-
-void updateAudioFeeders() {
-    feedPlayer(matPlayers[0]);
-    feedPlayer(matPlayers[1]);
-    feedPlayer(tfPlayer);
-}
-
-// ---------------------------------------------------------------------------
-// Asset discovery — enumerate .raw files in the LittleFS root
-// ---------------------------------------------------------------------------
-
-static const char* fsFiles[64];
+static SoundEntry sounds[64];
+static int        soundCount  = 0;
+static const char* fsFiles[64];  // points into sounds[].name for algorithm compat
 static int         fsFileCount = 0;
 
-void discoverAssets() {
+void preloadAssets() {
+    soundCount  = 0;
     fsFileCount = 0;
     File root = fs.open("/");
-    static char nameBuf[64][32];
-    while (fsFileCount < 64) {
+    while (soundCount < 64) {
         File entry = root.openNextFile();
         if (!entry) break;
         if (entry.isDirectory()) { entry.close(); continue; }
-        const char* name = entry.name();
-        const char* ext  = strrchr(name, '.');
-        if (ext && strcasecmp(ext, ".raw") == 0) {
-            strncpy(nameBuf[fsFileCount], name, 31);
-            nameBuf[fsFileCount][31] = '\0';
-            fsFiles[fsFileCount]     = nameBuf[fsFileCount];
-            fsFileCount++;
+        const char* fname = entry.name();
+        const char* ext   = strrchr(fname, '.');
+        if (!ext || strcasecmp(ext, ".raw") != 0) { entry.close(); continue; }
+        size_t fileSize  = entry.size();
+        size_t allocSize = 4 + fileSize;  // 4-byte AudioPlayMemory header + PCM
+        SoundEntry& s    = sounds[soundCount];
+        s.data = (uint32_t*)malloc(allocSize);
+        if (!s.data) {
+            Serial.printf("  OOM skipping %s (%u bytes)\n", fname, (unsigned)allocSize);
+            entry.close(); continue;
         }
+        // AudioPlayMemory header: type byte (upper 8 bits) + sample count (lower 24 bits)
+        // 0x81 = 16-bit signed PCM at 44100 Hz  (0x82 = 16-bit PCM at 22050 Hz)
+        s.data[0] = (0x81u << 24) | (uint32_t)(fileSize / 2);
+        entry.read((uint8_t*)s.data + 4, fileSize);
         entry.close();
+        s.bytes = allocSize;
+        strncpy(s.name, fname, 31); s.name[31] = '\0';
+        fsFiles[soundCount] = s.name;
+        soundCount++;
+        fsFileCount++;
+        Serial.printf("  [%d] %s  (%u KB)\n", soundCount-1, fname, (unsigned)(allocSize/1024));
     }
     root.close();
-    Serial.printf("Discovered %d .raw files on LittleFS.\n", fsFileCount);
-    for (int i = 0; i < fsFileCount; i++) {
-        Serial.printf("  [%d] %s\n", i, fsFiles[i]);
-    }
+    Serial.printf("Preloaded %d files into RAM.\n", soundCount);
+}
+
+const uint32_t* findSound(const char* filename) {
+    for (int i = 0; i < soundCount; i++)
+        if (strcasecmp(sounds[i].name, filename) == 0) return sounds[i].data;
+    return nullptr;
+}
+
+void startPlay(AudioPlayMemory& player, const char* filename) {
+    const uint32_t* buf = findSound(filename);
+    if (buf) player.play((const unsigned int*)buf);
+    else Serial.printf("ERROR: sound not found: %s\n", filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +220,7 @@ void setup() {
     delay(500);
     Serial.println("Lootr HW Test booting...");
 
-    AudioMemory(20);
+    AudioMemory(40);  // 40 × 128 samples — extra headroom for 3 RAM-backed players
 
     // Mixer gains
     mixer.gain(0, 0.95f);
@@ -278,7 +257,7 @@ void setup() {
 #endif
     Serial.println("");
 
-    discoverAssets();
+    preloadAssets();
 
     if (fsFileCount == 0) {
         Serial.println("No .raw files found. Transfer assets via MTP, then reset.");
@@ -293,12 +272,8 @@ void setup() {
 
 void loop() {
 #ifndef USB_AUDIO_OUT
-    // Keep MTP responsive while the USB drive is mounted
     MTP.loop();
 #endif
-
-    // Keep the audio queues topped up with data from open files
-    updateAudioFeeders();
 
     triggerBtn.update();
     bool triggerActive = (triggerBtn.read() == LOW);
@@ -327,12 +302,12 @@ void loop() {
         if ((now - lastPlayTime) >= PLAY_INTERVAL_MS) {
             const char* chosen = pickItemForAngle(angleDeg, spread, fsFiles, fsFileCount);
             if (chosen) {
-                startPlay(matPlayers[matAlternate ? 0 : 1], chosen);
+                startPlay(matAlternate ? playerMaterial0 : playerMaterial1, chosen);
                 matAlternate = !matAlternate;
 
                 const char* transfer = pickTransferItem(fsFiles, fsFileCount);
                 if (transfer && strcmp(chosen, transfer) != 0) {
-                    startPlay(tfPlayer, transfer);
+                    startPlay(playerTransfer, transfer);
                 }
 
                 Serial.printf("Angle: %5.1f° | Amp: %.2f | Spread: %4.1f° | %s\n",

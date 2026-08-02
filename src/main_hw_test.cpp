@@ -315,6 +315,14 @@ void loop() {
 
     unsigned long now = millis();
 
+    // Debug: print raw joystick state every 500ms regardless of trigger
+    static unsigned long lastDebugTime = 0;
+    if (now - lastDebugTime >= 500) {
+        Serial.printf("DEBUG x=%.2f y=%.2f amp=%.2f btn=%s\n",
+                      x, y, amplitude, triggerActive ? "PRESSED" : "open");
+        lastDebugTime = now;
+    }
+
     if (amplitude > DEADZONE && triggerActive && fsFileCount > 0) {
         if ((now - lastPlayTime) >= PLAY_INTERVAL_MS) {
             const char* chosen = pickItemForAngle(angleDeg, spread, fsFiles, fsFileCount);

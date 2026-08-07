@@ -1,0 +1,98 @@
+Lootr SD Troubleshooting Handoff
+Date: 2026-08-07
+
+Scope
+- Goal: Bring up SD-backed Teensy firmware and confirm .raw asset discovery.
+- Hardware in play: Teensy 4.0, SPI SD-card reader module, KY-023 joystick.
+
+Current Firmware/Tools State
+- Final embedded SD firmware environment exists and flashes:
+  - teensy40_final_embedded
+  - helper script: ./scripts/flash_final_embedded.sh
+- SD diagnostics firmware was added and flashes:
+  - teensy40_sd_diag
+  - helper script: ./scripts/flash_sd_diag.sh
+- Serial monitor helper:
+  - ./scripts/monitor.sh teensy40_sd_diag
+
+Observed Results So Far
+1) SD card media preparation on Mac is good
+- Card was reformatted as a single FAT32 partition and mounted as LOOTR.
+- 112 .raw files were copied to SD root successfully.
+
+2) Firmware upload to Teensy works
+- Production and diagnostics variants compile and upload.
+
+3) Runtime SD detection problem remains
+- Boot output from embedded firmware showed:
+  - "Lootr booting..."
+  - "ERROR: SD card not found. Check wiring/card."
+- Therefore failure is at SD initialization (SD.begin), before asset enumeration.
+
+4) Pin-number understanding confirmed
+- Teensy board numeric labels correspond directly to digital pin numbers in code.
+- Example: board pin 10 equals D10 in firmware.
+
+5) Electrical checks performed by user
+- Continuity checks passed for intended connections.
+- MISO observed around 0.5-0.9 V on DC multimeter and unstable.
+
+Interpretation Notes
+- A DC multimeter reading on SPI data lines can be misleading because:
+  - SPI is fast digital switching and the meter averages pulses.
+  - MISO can be tri-stated/floating when idle depending on module/card state.
+- So 0.5-0.9 V on MISO does not alone prove failure.
+
+Likely Causes (ranked)
+1) Module power expectation mismatch
+- Many SD reader breakouts with onboard 3.3 V regulator expect 5 V at VCC.
+- If powered from 3.3 V when designed for 5 V input, onboard path may be underpowered.
+
+2) Intermittent mechanical contact despite continuity spot-checks
+- Flimsy Dupont jumpers can pass static continuity but fail under vibration/position.
+
+3) CS or SPI line instability under load
+- Especially CS and GND contact quality.
+
+Recommended Next Steps
+1) Run diagnostics firmware continuously while manipulating wires
+- Flash:
+  - ./scripts/flash_sd_diag.sh
+- Monitor:
+  - ./scripts/monitor.sh teensy40_sd_diag
+- Expectation:
+  - Stable wiring: repeated [PASS ...] lines
+  - Flaky wiring: [FAIL ...] spikes when touched/moved
+
+2) Verify exact wiring mapping again
+- SD CS -> Teensy 10
+- SD SCK -> Teensy 13
+- SD MOSI -> Teensy 11
+- SD MISO -> Teensy 12
+- SD GND -> Teensy GND
+- SD VCC -> currently 3.3 V (see step 3)
+
+3) Power-input test for module expectation
+- Try SD module VCC at 5 V (keep logic lines unchanged) only if module is a 5 V-input breakout.
+- Re-run diagnostics and compare PASS/FAIL stability.
+- Safety check: verify MISO never exceeds 3.3 V relative to GND.
+
+4) Prefer robust physical connections
+- Shorter wires, firmer headers, avoid loose Dupont jumpers.
+- Re-seat SD card and all jumpers.
+
+5) If available, use logic analyzer/scope
+- Verify real SPI signaling on CS/SCK/MOSI/MISO during SD.begin attempts.
+
+Useful Commands
+- Flash embedded SD firmware:
+  - ./scripts/flash_final_embedded.sh
+- Flash SD diagnostics firmware:
+  - ./scripts/flash_sd_diag.sh
+- Monitor diagnostics:
+  - ./scripts/monitor.sh teensy40_sd_diag
+
+Pass Criteria to Proceed
+- Diagnostics shows stable repeated PASS results over at least 1-2 minutes.
+- Embedded SD firmware boots and reports discovered .raw files (non-zero count).
+- Then proceed with audio-path testing on target machine.

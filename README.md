@@ -59,3 +59,47 @@ the logic will be ported to C++ for the Teensy microcontroller.
    source .venv/bin/activate
    python proto.py
    ```
+
+## Teensy Wiring (SD Reader + Joystick)
+
+These wiring instructions match the current C++ firmware pin mapping used in
+`include/config.h` and `src/main.cpp`.
+
+### 1) SPI SD-card Reader Module -> Teensy 4.0
+
+Use the pin labels from your SD reader PCB (`CS`, `SCK`, `MOSI`, `MISO`, `VCC`,
+`GND`) and connect them as follows:
+
+| SD Reader Pin | Teensy 4.0 Pin | Notes                             |
+| ------------- | -------------- | --------------------------------- |
+| CS            | D10            | Chip select                       |
+| SCK           | D13            | SPI clock                         |
+| MOSI          | D11            | SPI data from Teensy to SD reader |
+| MISO          | D12            | SPI data from SD reader to Teensy |
+| VCC           | 3.3V           | Use 3.3V power                    |
+| GND           | GND            | Common ground                     |
+
+Important:
+
+- Do not power the SD reader from 5V unless your specific module explicitly
+  supports level shifting for 3.3V logic.
+- Keep SPI wires reasonably short to avoid signal integrity issues.
+
+### 2) KY-023 Joystick -> Teensy 4.0
+
+Use the joystick pins in this order: `GND`, `+5V`, `VRx`, `VRy`, `SW`.
+
+| Joystick Pin | Teensy 4.0 Pin | Notes                                         |
+| ------------ | -------------- | --------------------------------------------- |
+| GND          | GND            | Common ground                                 |
+| +5V          | 3.3V           | Power from 3.3V, not 5V                       |
+| VRx          | A2 (pin 16)    | X-axis analog input                           |
+| VRy          | A3 (pin 17)    | Y-axis analog input                           |
+| SW           | D2             | Button input (active-low with `INPUT_PULLUP`) |
+
+Important:
+
+- Even if the joystick board says `+5V`, use Teensy 3.3V so analog outputs stay
+  in safe ADC range.
+- Do not use A0/pin 14 for joystick analog input in this project, because A0 is
+  reserved for DAC audio output in the analog-audio path.

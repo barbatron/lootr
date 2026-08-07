@@ -149,3 +149,13 @@ stages:
 Backward compatibility notes:
 - `teensy40` remains the production SD + analog output firmware.
 - `teensy40_hwtest_usbaudio` remains available for the original LittleFS USB test flow.
+
+### Convenience flash scripts
+
+Instead of typing full PlatformIO commands each time:
+
+```bash
+./scripts/flash_local_usb.sh
+./scripts/flash_sd_usb.sh
+./scripts/flash_final_embedded.sh
+```

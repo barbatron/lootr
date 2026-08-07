@@ -4,7 +4,8 @@
 // Ported from proto.py. See spec.md for full porting guide and wiring.
 //
 // Audio pipeline:
-//   SD card (SPI) → AudioPlaySdRaw → AudioMixer4 → AudioOutputAnalog
+//   SD card (SPI) → AudioPlaySdRaw → AudioMixer4 → AudioOutputAnalog (default)
+//   or AudioOutputUSB when USB_AUDIO_OUT is defined.
 
 #include <Arduino.h>
 #include <Audio.h>
@@ -23,12 +24,21 @@ AudioPlaySdRaw  playerMaterial0;
 AudioPlaySdRaw  playerMaterial1;
 AudioPlaySdRaw  playerTransfer;
 AudioMixer4              mixer;
-AudioOutputAnalog        dac;
 
-AudioConnection patchCord0(playerMaterial0, 0, mixer, 0);
-AudioConnection patchCord1(playerMaterial1, 0, mixer, 1);
-AudioConnection patchCord2(playerTransfer,   0, mixer, 2);
-AudioConnection patchCordOut(mixer,          0, dac,   0);
+#ifdef USB_AUDIO_OUT
+AudioOutputUSB           audioOut;
+AudioConnection patchCord0(playerMaterial0, 0, mixer,    0);
+AudioConnection patchCord1(playerMaterial1, 0, mixer,    1);
+AudioConnection patchCord2(playerTransfer,   0, mixer,    2);
+AudioConnection patchCordL(mixer,            0, audioOut, 0);
+AudioConnection patchCordR(mixer,            0, audioOut, 1);
+#else
+AudioOutputAnalog        audioOut;
+AudioConnection patchCord0(playerMaterial0, 0, mixer,    0);
+AudioConnection patchCord1(playerMaterial1, 0, mixer,    1);
+AudioConnection patchCord2(playerTransfer,   0, mixer,    2);
+AudioConnection patchCordOut(mixer,          0, audioOut, 0);
+#endif
 
 // ---------------------------------------------------------------------------
 // Helpers — ported from proto.py

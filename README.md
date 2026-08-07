@@ -103,3 +103,49 @@ Important:
   in safe ADC range.
 - Do not use A0/pin 14 for joystick analog input in this project, because A0 is
   reserved for DAC audio output in the analog-audio path.
+
+## Firmware Variants (Teensy 4.0)
+
+The project supports three hardware firmware variants for different iteration
+stages:
+
+| Variant | PlatformIO env | Asset source | Audio output |
+| --- | --- | --- | --- |
+| Most local iteration | `teensy40_local_usb` | Internal LittleFS (limited set) | USB Audio |
+| SD asset iteration | `teensy40_sd_usb` | SD card (`.raw` files at card root) | USB Audio |
+| Final embedded path | `teensy40_final_embedded` | SD card (`.raw` files at card root) | Teensy DAC (A0/pin 14) -> LM386 |
+
+### A) Most local iteration (no SD card required)
+
+1. Prepare limited hardware-test asset set:
+  ```bash
+  ./scripts/prepare_assets_hw_test.sh
+  ```
+2. Flash MTP transfer firmware and copy files into LittleFS:
+  ```bash
+  pio run -e teensy40_hwtest --target upload
+  ```
+3. Flash local USB-audio iteration variant:
+  ```bash
+  pio run -e teensy40_local_usb --target upload
+  ```
+
+### B) SD asset iteration (full SD library + USB audio)
+
+1. Ensure SD card has `.raw` files in its root directory.
+2. Flash SD + USB audio variant:
+  ```bash
+  pio run -e teensy40_sd_usb --target upload
+  ```
+
+### C) Final embedded path (SD + analog DAC output)
+
+1. Ensure SD card has `.raw` files in its root directory.
+2. Flash final analog-output variant:
+  ```bash
+  pio run -e teensy40_final_embedded --target upload
+  ```
+
+Backward compatibility notes:
+- `teensy40` remains the production SD + analog output firmware.
+- `teensy40_hwtest_usbaudio` remains available for the original LittleFS USB test flow.

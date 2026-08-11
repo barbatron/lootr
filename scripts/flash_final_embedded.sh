@@ -10,6 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source .venv/bin/activate 2>/dev/null || true
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
 
 echo "Flashing final embedded firmware (SD assets + analog DAC output)..."
 pio run -e teensy40_final_embedded --target upload

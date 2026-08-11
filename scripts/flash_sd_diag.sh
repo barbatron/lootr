@@ -11,10 +11,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source .venv/bin/activate 2>/dev/null || true
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
 
 echo "Flashing SD diagnostics firmware..."
 pio run -e teensy40_sd_diag --target upload
 
 echo ""
 echo "Next: ./scripts/monitor.sh teensy40_sd_diag"
+echo "Quick test: ./scripts/monitor.sh teensy40_sd_diag 5"
 echo "Expected: repeated [PASS ...] lines if wiring is stable."

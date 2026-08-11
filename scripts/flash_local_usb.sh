@@ -11,6 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source .venv/bin/activate 2>/dev/null || true
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
 
 echo "Flashing local USB-audio firmware (internal LittleFS assets)..."
 pio run -e teensy40_local_usb --target upload

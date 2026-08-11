@@ -20,6 +20,11 @@
 
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
+source .venv/bin/activate 2>/dev/null || true
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
+
 ASSETS_RAW_DIR="${1:-assets_raw}"
 MAIN_SRC="src/main.cpp"
 COPY_SKETCH_SRC=".pio/libdeps/teensy40/SerialFlash/examples/CopyFromSerial/CopyFromSerial.ino"

@@ -13,6 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source .venv/bin/activate 2>/dev/null || true
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
 
 echo "Flashing MTP (file transfer) firmware..."
 pio run -e teensy40_hwtest --target upload

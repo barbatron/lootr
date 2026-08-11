@@ -16,6 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source .venv/bin/activate 2>/dev/null || true
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
 
 echo "Flashing USB Audio firmware..."
 pio run -e teensy40_hwtest_usbaudio --target upload

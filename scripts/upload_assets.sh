@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# upload_assets.sh — Upload .raw audio assets to SPI flash chip via Teensy
+# upload_assets.sh — Legacy Teensy flow: upload .raw audio assets to SPI flash chip via Teensy
 #
 # Usage:
 #   ./scripts/upload_assets.sh [assets_raw_dir]

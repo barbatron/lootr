@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flash SD-backed firmware with USB audio output.
+# Legacy Teensy helper: flash SD-backed firmware with USB audio output.
 #
 # This variant reads .raw assets from SD card root and outputs audio over USB
 # (useful for Windows/Mac iteration without onboard amplifier/speaker).

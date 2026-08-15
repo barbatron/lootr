@@ -1,172 +1,144 @@
 # Lootr — Hardware Specification & Porting Guide
 
-This file, together with `proto.py`, forms the complete source of truth for the
-Loot-o-mo-tron. A language model given both files should have everything needed
-to generate or update the Teensy 4.0 C++ sketch.
+This file, together with proto.py, is the source of truth for Lootr selection
+logic and hardware pin expectations.
+
+Primary hardware target is Raspberry Pi Pico 2020 (RP2040).
 
 ---
 
 ## Hardware Bill of Materials
 
-| Component    | Part / Notes                                                                                           |
-| ------------ | ------------------------------------------------------------------------------------------------------ |
-| MCU          | Teensy 4.0                                                                                             |
-| Input        | KY-023 analog thumbstick module (X, Y potentiometers + push-button)                                    |
-| Storage      | MicroSD card reader (SPI interface, 3.3V)                                                              |
-| Audio output | Teensy DAC (pin 14 / A14) → LM386 audio amp → 8Ω speaker                                               |
-| Power        | 3.7V LiPo → MT3608 (or similar) boost converter → 5V rail                                              |
-| Misc         | MicroSD card (any capacity), 10kΩ volume potentiometer, 250µF output cap, 10µF + 10Ω stability network |
+| Component | Part / Notes |
+| --- | --- |
+| MCU | Raspberry Pi Pico 2020 (RP2040) |
+| Input | KY-023 analog thumbstick module (X, Y potentiometers + push-button) |
+| Storage | MicroSD card reader (SPI interface) |
+| Audio output | External path is project-dependent; this repo primarily validates SD and input behavior |
+| Misc | MicroSD card, short jumper wires, stable USB power |
 
 ---
 
-## Pin Mapping
+## Pin Mapping (Primary)
 
-### KY-023 Thumbstick → Teensy 4.0
+### MicroSD Card Reader -> Raspberry Pi Pico 2020
 
-| Thumbstick Pin | Teensy Pin  | Notes                                        |
-| -------------- | ----------- | -------------------------------------------- |
-| VCC            | 3.3V        |                                              |
-| GND            | GND         |                                              |
-| VRx            | A2 (pin 16) | Joystick X axis                              |
-| VRy            | A3 (pin 17) | Joystick Y axis                              |
-| SW             | D2          | Trigger button; use INPUT_PULLUP, active LOW |
+| SD Reader Pin | Pico GPIO | Pico Physical Pin |
+| --- | --- | --- |
+| CS | GP17 | 22 |
+| MOSI / DI | GP19 | 25 |
+| MISO / DO | GP16 | 21 |
+| SCK | GP18 | 24 |
+| VCC | 3V3 or VBUS | 36 (3V3) or 40 (VBUS) |
+| GND | GND | 23 (recommended) |
 
-> ADC reads 0–1023. Midpoint ≈ 512. Normalise to -1.0–1.0:
-> `float x = (analogRead(A2) - 512) / 512.0f;`
+Notes:
+- Use GPIO labels (GP16..GP19), not only physical location descriptions.
+- Start with 3V3 VCC. If init fails and module supports 5V input, test VBUS.
+- Keep MISO/DO logic safe for RP2040 inputs.
 
-### MicroSD Card Reader → Teensy 4.0
+### KY-023 Thumbstick -> Raspberry Pi Pico 2020
 
-| SD Reader Pin | Teensy Pin |
-| ------------- | ---------- |
-| CS            | D10        |
-| MOSI          | D11        |
-| MISO          | D12        |
-| SCK           | D13        |
-| VCC           | 3.3V       |
-| GND           | GND        |
+Suggested mapping for diagnostics/prototyping:
 
-Recommended library: **SD** (by PJRC, bundled with Teensyduino) — supports
-`AudioPlaySdRaw`.
+| Thumbstick Pin | Pico Pin | Notes |
+| --- | --- | --- |
+| VCC | 3V3 | |
+| GND | GND | |
+| VRx | GP26 (ADC0) | Joystick X axis |
+| VRy | GP27 (ADC1) | Joystick Y axis |
+| SW | GP15 | Active LOW with pull-up |
 
-### Audio Output
+> ADC conversion note: scale to -1.0..1.0 from midpoint.
 
-|                   |                                                                                                      |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| Teensy DAC        | **Pin 14 (A0)** — used exclusively by AudioOutputAnalog. **Do not connect anything else to pin 14.** |
-| DAC → LM386 in+   | Via 10kΩ volume pot wiper                                                                            |
-| LM386 pin 6 (Vcc) | 5V rail from boost converter                                                                         |
-| LM386 pin 4 (GND) | GND                                                                                                  |
-| LM386 pin 5 (out) | 250µF cap → speaker+                                                                                 |
-| Speaker−          | GND                                                                                                  |
-| Pin 7 stability   | 10µF + 10Ω in series, to GND                                                                         |
+---
 
-> **Note**: If using the Teensy Audio Library with I2S output instead of raw
-> DAC, connect an I2S DAC breakout (e.g. PCM5102) to Teensy pins 7 (LRCLK), 8
-> (BCLK), 22 (MCLK), 13 (DIN). This gives significantly better audio quality.
+## Arduino IDE Core Requirement (Pico)
+
+Use Earle Philhower RP2040 boards package for the current Pico SD diagnostic
+sketch.
+
+Board Manager URL:
+
+```text
+https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+```
 
 ---
 
 ## Audio Asset Format
 
-Files stored on the microSD card should follow this naming convention:
+Files on the SD card should follow:
 
-```
+```text
 <type>-<variation>.raw
 ```
 
-- **type**: item category keyword (see angle rules below)
-- **variation**: zero-padded integer, e.g. `01`, `02`
-- **Format**: 16-bit PCM, 44100 Hz, mono (required by Teensy Audio Library's
-  `AudioPlaySdRaw`)
-- **Location**: Files should be in the root directory or a dedicated `/audio/`
-  folder on the microSD card
+- type: category keyword
+- variation: zero-padded integer, for example 01, 02
+- format: 16-bit PCM, 44100 Hz, mono
 
-Convert WAV → RAW with:
+Convert WAV -> RAW:
 
 ```bash
 sox input.wav -r 44100 -c 1 -e signed -b 16 output.raw
 ```
 
-Then copy all `.raw` files to the microSD card.
+---
+
+## Item Type -> Angle Rules
+
+Angle convention: 0 degrees = right, 90 = down, 180 = left, 270 = up.
+
+| Category | Keywords | Angle |
+| --- | --- | --- |
+| Metal / mechanical | metal, can, gun, pipe, blade, wire | 270 |
+| Minerals / earth | charcoal, sulfur, sulphur, stone, ore, coal | 180 |
+| Wood | wood, plank, stick, log | 0 |
+| Everything else | fallback | 90 |
 
 ---
 
-## Item Type → Angle Rules
+## Selection Algorithm (from proto.py)
 
-Angle convention: **0° = right, 90° = down, 180° = left, 270° = up**.
+### get_angular_distance(a, b)
 
-| Category           | Keywords                                    | Angle       |
-| ------------------ | ------------------------------------------- | ----------- |
-| Metal / mechanical | metal, can, gun, pipe, blade, wire          | 270° (up)   |
-| Minerals / earth   | charcoal, sulfur, sulphur, stone, ore, coal | 180° (left) |
-| Wood               | wood, plank, stick, log                     | 0° (right)  |
-| Everything else    | _(fallback)_                                | 90° (down)  |
+Shortest angular distance between two angles (0..180).
 
-On hardware, implement as a static lookup in `include/config.h`.
-
----
-
-## Selection Algorithm (port from `proto.py`)
-
-### `get_angular_distance(a, b)`
-
-Shortest angular distance between two angles (0–180°).
-
-```
+```text
 diff = abs((a - b) % 360)
 return min(diff, 360 - diff)
 ```
 
-### `pick_item_for_angle(input_angle, max_spread)`
+### pick_item_for_angle(input_angle, max_spread)
 
-1. For each item type, compute
-   `dist = get_angular_distance(input_angle, type_angle)`.
-2. If `dist <= max_spread`, compute `weight = (max_spread - dist)²`.
-3. Randomly select using weighted probability.
-4. If no candidates in spread, pick the closest item (fallback).
+1. For each item type, compute angular distance.
+2. If distance <= spread, use weight = (spread - distance)^2.
+3. Weighted-random choose from candidates.
+4. If no candidates, choose closest item.
 
-### Dynamic Spread (driven by joystick amplitude)
+### Dynamic Spread (joystick amplitude)
 
-```
-amplitude = sqrt(x² + y²)   // 0.0 at center, ~1.0 at edge
+```text
+amplitude = sqrt(x^2 + y^2)
 spread = SPREAD_AT_CENTER - clamp(amplitude, 0, 1) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE)
 ```
 
 ---
 
-## Key Constants (keep in sync with `proto.py` and `include/config.h`)
+## Key Constants
 
-| Constant           | Value | Description                                           |
-| ------------------ | ----- | ----------------------------------------------------- |
-| `PLAY_INTERVAL_MS` | 180   | Minimum ms between sample triggers                    |
-| `DEADZONE`         | 0.05  | Amplitude below which no trigger fires                |
-| `SPREAD_AT_CENTER` | 180.0 | Max spread (degrees) at stick center → fully random   |
-| `SPREAD_AT_EDGE`   | 20.0  | Min spread (degrees) at full stick deflection → tight |
-
----
-
-## C++ Libraries Required (PlatformIO)
-
-```ini
-lib_deps =
-    Bounce2              ; Trigger button debouncing
-    ; SD library (bundled with Teensyduino) for microSD card access
-    ; Teensy Audio Library (bundled with Teensyduino) for AudioPlaySdRaw
-```
+| Constant | Value | Description |
+| --- | --- | --- |
+| PLAY_INTERVAL_MS | 180 | Minimum ms between sample triggers |
+| DEADZONE | 0.05 | Amplitude threshold |
+| SPREAD_AT_CENTER | 180.0 | Max spread at center |
+| SPREAD_AT_EDGE | 20.0 | Min spread at edge |
 
 ---
 
-## Porting Checklist
+## Legacy Teensy Notes
 
-- [ ] `get_angular_distance()` → port to
-      `float getAngularDistance(float a, float b)`
-- [ ] `pick_item_for_angle()` → port to
-      `const char* pickItemForAngle(float angle, float spread)`
-- [ ] `ITEM_ANGLE_RULES` → static array of structs in `config.h`
-- [ ] `map_types_to_angles()` → not needed; asset list is static at build time
-- [ ] `PLAY_INTERVAL_MS`, `DEADZONE`, `SPREAD_*` → `#define` in `config.h`
-- [ ] ADC normalisation: `(analogRead(pin) - 512) / 512.0f`
-- [ ] Trigger: `digitalRead(SW_PIN) == LOW` (active-low with pull-up)
-- [ ] Audio playback: `AudioPlaySdRaw` + `AudioMixer4` + `AudioOutputAnalog`
-- [ ] SD card initialization: `SD.begin(BUILTIN_SDCARD)` or
-      `SD.begin(chipSelectPin)`
+Teensy 4.0 PlatformIO environments remain in this repository for backward
+compatibility and prior hardware iterations. They are not the primary target
+for ongoing bring-up.

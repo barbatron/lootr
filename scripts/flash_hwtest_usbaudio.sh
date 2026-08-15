@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flash the USB Audio firmware onto the Teensy.
+# Legacy Teensy helper: flash the USB Audio firmware onto the Teensy.
 # Run this AFTER flash_hwtest_mtp.sh + copying .raw files via MTP.
 # Files on LittleFS survive this reflash.
 #

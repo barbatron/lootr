@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flash SD diagnostics firmware (no audio required).
+# Legacy Teensy helper: flash SD diagnostics firmware (no audio required).
 #
 # This firmware scans likely CS pins and continuously verifies SD init +
 # root directory read every 500ms to expose flaky jumper connections.

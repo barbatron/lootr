@@ -1,9 +1,35 @@
 Lootr SD Troubleshooting Handoff
-Date: 2026-08-07
+Date: 2026-08-15
 
 Scope
-- Goal: Bring up SD-backed Teensy firmware and confirm .raw asset discovery.
-- Hardware in play: Teensy 4.0, SPI SD-card reader module, KY-023 joystick.
+- Goal: Maintain a reliable SD bring-up path with Raspberry Pi Pico 2020 as primary target.
+- Hardware in play: Raspberry Pi Pico 2020, SPI SD-card reader module, KY-023 joystick.
+
+Current Primary Status (Pico)
+1) Pico SD diagnostics sketch is now the primary bring-up tool:
+  - raspberry_pi_pico_sd_diag/raspberry_pi_pico_sd_diag.ino
+2) Verified successful run:
+  - CS=17 -> SD.begin OK, files=112, raw=112
+  - Repeated [PASS ...] lines observed
+3) Root cause of repeated failures before success:
+  - Mechanical seating/contact instability on module/header path
+  - Not firmware logic
+4) Known-good Pico SD mapping:
+  - DO/MISO -> GP16 (physical pin 21)
+  - CS -> GP17 (physical pin 22)
+  - SCK -> GP18 (physical pin 24)
+  - DI/MOSI -> GP19 (physical pin 25)
+  - GND -> GND
+  - VCC -> 3V3 first, then VBUS test if module requires 5V input
+
+Validation pattern:
+- PASS state: repeated [PASS ...] and stable file counts
+- FAIL state: No working CS pin found + [FAIL ...] no active CS
+
+---
+
+Historical Teensy Notes (legacy)
+The sections below are historical notes from the previous Teensy-first phase.
 
 Current Firmware/Tools State
 - Final embedded SD firmware environment exists and flashes:

@@ -157,11 +157,11 @@ void setup() {
   Serial.println("  MISO -> GP16");
   Serial.println();
 
-#if defined(ARDUINO_ARCH_RP2040)
+  // Earle Philhower RP2040 core required — NOT the Arduino Mbed RP2040 core.
+  // Install: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
   SPI.setRX(PIN_SD_MISO);
   SPI.setTX(PIN_SD_MOSI);
   SPI.setSCK(PIN_SD_SCK);
-#endif
   SPI.begin();
 
   scanCsPins();

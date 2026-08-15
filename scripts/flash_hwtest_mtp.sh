@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flash the MTP file-transfer firmware onto the Teensy.
+# Legacy Teensy helper: flash the MTP file-transfer firmware onto the Teensy.
 # After flashing, "Lootr Test" appears as a USB drive in Finder.
 # Drag assets_test_raw/*.raw onto it, then run flash_hwtest_usbaudio.sh.
 #

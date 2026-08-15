@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flash local iteration firmware: internal LittleFS assets + USB audio output.
+# Legacy Teensy helper: flash local iteration firmware with internal LittleFS assets + USB audio output.
 #
 # This variant does not use the SD card for playback, but it expects assets to
 # already be loaded into LittleFS (for example via flash_hwtest_mtp.sh).

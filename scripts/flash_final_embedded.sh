@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flash final embedded firmware: SD-backed assets + onboard analog DAC output.
+# Legacy Teensy helper: flash final embedded firmware (SD-backed assets + onboard analog DAC output).
 #
 # Output path for this variant is Teensy DAC (A0/pin 14) -> LM386 -> speaker.
 #

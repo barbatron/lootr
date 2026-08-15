@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Open a serial monitor for firmware output without using PlatformIO monitor.
+# This helper is board-agnostic; it auto-picks an available USB serial port.
 #
 # Usage:
 #   ./scripts/monitor.sh [env]
 #   ./scripts/monitor.sh [env] [seconds]
 #
 # Examples:
-#   ./scripts/monitor.sh teensy40_sd_diag        # interactive monitor (Ctrl+C)
-#   ./scripts/monitor.sh teensy40_sd_diag 5      # quick 5s smoke test
+#   ./scripts/monitor.sh                         # interactive monitor (Ctrl+C)
+#   ./scripts/monitor.sh pico_sd_diag 5          # quick 5s smoke test
 #
 # In quick-test mode (seconds provided), the script exits after the duration and
 # returns:
@@ -20,7 +21,7 @@ cd "$(dirname "$0")/.."
 
 source .venv/bin/activate 2>/dev/null || true
 
-ENV="${1:-teensy40_hwtest_usbaudio}"
+ENV="${1:-serial}"
 SECONDS_LIMIT="${2:-}"
 
 detect_port() {

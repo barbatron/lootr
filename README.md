@@ -11,6 +11,16 @@ project currently has two active tracks:
 
 Primary hardware target is now Raspberry Pi Pico 2020 (RP2040).
 
+## Documentation
+
+Structured project docs are in:
+
+- `docs/README.md`
+- `docs/TODO.md`
+- `docs/local-testing.md`
+- `docs/hardware-wiring.md`
+- `docs/audio-options.md`
+
 ## Current Primary Target (Raspberry Pi Pico 2020)
 
 Use the Pico SD diagnostics sketch:

@@ -167,13 +167,16 @@ flowchart LR
 - [ ] Wire Pico audio output into LM386 input (with volume potentiometer)
 - [ ] Add LM386 support components (gain/stability/output cap)
 - [ ] Connect tiny speaker and verify clean audio at low/medium volume
-- [ ] Check noise floor (USB/battery hiss, digital whine) and improve grounding/layout
+- [ ] Check noise floor (USB/battery hiss, digital whine) and improve
+      grounding/layout
 
 ### Firmware + Integration
 
 - [ ] Merge SD + joystick diagnostics into one integration firmware target
-- [ ] Add serial startup summary: SD pass/fail, joystick calibration, input activity
-- [ ] Implement trigger-to-sample playback loop without requiring host connection
+- [ ] Add serial startup summary: SD pass/fail, joystick calibration, input
+      activity
+- [ ] Implement trigger-to-sample playback loop without requiring host
+      connection
 - [ ] Keep serial debug mode available via USB for field diagnostics
 
 ### Mechanical + UX

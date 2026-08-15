@@ -1,6 +1,7 @@
 # Project TODOs
 
-This list tracks handheld build work from SD and joystick diagnostics to standalone audio playback.
+This list tracks handheld build work from SD and joystick diagnostics to
+standalone audio playback.
 
 ## Milestone A - Stable Inputs and Storage
 
@@ -10,7 +11,8 @@ This list tracks handheld build work from SD and joystick diagnostics to standal
 
 ## Milestone B - Audio Bring-Up
 
-- [ ] Select audio path for initial hardware integration: LM386 or class-D module
+- [ ] Select audio path for initial hardware integration: LM386 or class-D
+      module
 - [ ] Generate known test tone from Pico firmware
 - [ ] Confirm audible output on tiny speaker
 - [ ] Tune gain and filter network to remove noise/clipping

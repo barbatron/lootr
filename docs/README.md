@@ -1,6 +1,7 @@
 # Lootr Documentation
 
-This folder contains build and validation documentation for the Raspberry Pi Pico 2020 handheld path.
+This folder contains build and validation documentation for the Raspberry Pi
+Pico 2020 handheld path.
 
 ## Contents
 

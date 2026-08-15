@@ -30,7 +30,7 @@ Primary hardware target is Raspberry Pi Pico 2020 (RP2040).
 | MISO / DO     | GP16        | 21                    |
 | SCK           | GP18        | 24                    |
 | VCC           | 3V3 or VBUS | 36 (3V3) or 40 (VBUS) |
-| GND           | GND         | 23 (recommended)      |
+| GND           | GND         | 23                    |
 
 Notes:
 
@@ -40,7 +40,7 @@ Notes:
 
 ### KY-023 Thumbstick -> Raspberry Pi Pico 2020
 
-Suggested mapping for diagnostics/prototyping:
+Mapping for diagnostics/prototyping:
 
 | Thumbstick Pin | Pico Pin    | Notes                   |
 | -------------- | ----------- | ----------------------- |
@@ -76,7 +76,7 @@ Files on the SD card should follow:
 ```
 
 - type: category keyword
-- variation: zero-padded integer, for example 01, 02
+- variation: zero-padded integer, e.g., 01, 02
 - format: 16-bit PCM, 44100 Hz, mono
 
 Convert WAV -> RAW:
@@ -142,4 +142,4 @@ spread = SPREAD_AT_CENTER - clamp(amplitude, 0, 1) * (SPREAD_AT_CENTER - SPREAD_
 
 Teensy 4.0 PlatformIO environments remain in this repository for backward
 compatibility and prior hardware iterations. They are not the primary target for
-ongoing bring-up.
+current bring-up.

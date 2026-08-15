@@ -40,10 +40,10 @@ Use GPIO labels (not just physical position descriptions):
 | SCK           | GP18      | 24                   |
 | MOSI / DI     | GP19      | 25                   |
 | MISO / DO     | GP16      | 21                   |
-| GND           | GND       | 23 (recommended)     |
+| GND           | GND       | 23                   |
 | VCC           | 3V3 or 5V | 36 (3V3) / 40 (VBUS) |
 
-Power guidance:
+Power notes:
 
 - Start with 3V3 power.
 - If init fails consistently, test 5V VBUS only if module supports it.
@@ -77,7 +77,7 @@ No working CS pin found.
 
 ## Joystick Bring-Up (Serial Only)
 
-If you want to verify joystick input without audio, use:
+To verify joystick input without audio, use:
 
 - `raspberry_pi_pico_joystick_diag/raspberry_pi_pico_joystick_diag.ino`
 
@@ -85,7 +85,7 @@ If you want to verify joystick input without audio, use:
 
 | KY-023 Pin | Pico GPIO | Pico Physical Pin |
 | ---------- | --------- | ----------------- |
-| GND        | GND       | 23 (recommended)  |
+| GND        | GND       | 23                |
 | +5V        | 3V3       | 36                |
 | VRx        | GP26      | 31                |
 | VRy        | GP27      | 32                |
@@ -133,8 +133,8 @@ python proto.py
 
 ## System Overview (Handheld Target)
 
-The next phase is a standalone handheld build that keeps the current Pico + SD
-input path and adds battery-powered audio output.
+The handheld build target keeps the current Pico + SD input path and adds
+battery-powered audio output.
 
 ```mermaid
 flowchart LR
@@ -155,7 +155,7 @@ flowchart LR
 
 ### Electrical + Power
 
-- [ ] Choose power source: USB power bank 5V output (quickest path)
+- [ ] Choose power source: USB power bank 5V output
 - [ ] Add inline latching power switch on main 5V rail from power bank
 - [ ] Confirm common ground between Pico, SD reader, joystick, and LM386
 - [ ] Decide Pico power input path (VBUS pin from switched 5V rail)
@@ -165,7 +165,7 @@ flowchart LR
 
 - [ ] Choose Pico audio output strategy (PWM + RC filter or external DAC board)
 - [ ] Wire Pico audio output into LM386 input (with volume potentiometer)
-- [ ] Add LM386 recommended support components (gain/stability/output cap)
+- [ ] Add LM386 support components (gain/stability/output cap)
 - [ ] Connect tiny speaker and verify clean audio at low/medium volume
 - [ ] Check noise floor (USB/battery hiss, digital whine) and improve grounding/layout
 
@@ -181,7 +181,7 @@ flowchart LR
 - [ ] Choose enclosure layout for thumb access, speaker vent, and SD access
 - [ ] Strain-relief or secure jumper/headers to avoid intermittent contact
 - [ ] Mount switch in externally reachable location
-- [ ] Add simple battery-level/user status indication plan (optional)
+- [ ] Add battery-level/user status indication plan
 
 ### Validation Gates
 

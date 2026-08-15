@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-Lootr is an interactive audio prototype where joystick direction selects an
-item category and joystick amplitude controls selection tightness/intensity.
-The project currently has two active tracks:
+Lootr is an interactive audio prototype where joystick direction selects an item
+category and joystick amplitude controls selection tightness/intensity. The
+project currently has two active tracks:
 
 - Python prototype for gameplay/selection logic iteration.
 - Raspberry Pi Pico 2020 hardware diagnostics for SD-card stability.
@@ -24,13 +24,13 @@ the canonical hardware bring-up path.
 
 Use GPIO labels (not just physical position descriptions):
 
-| SD Reader Pin | Pico GPIO | Pico Physical Pin |
-| ------------- | --------- | ----------------- |
-| CS            | GP17      | 22                |
-| SCK           | GP18      | 24                |
-| MOSI / DI     | GP19      | 25                |
-| MISO / DO     | GP16      | 21                |
-| GND           | GND       | 23 (recommended)  |
+| SD Reader Pin | Pico GPIO | Pico Physical Pin    |
+| ------------- | --------- | -------------------- |
+| CS            | GP17      | 22                   |
+| SCK           | GP18      | 24                   |
+| MOSI / DI     | GP19      | 25                   |
+| MISO / DO     | GP16      | 21                   |
+| GND           | GND       | 23 (recommended)     |
 | VCC           | 3V3 or 5V | 36 (3V3) / 40 (VBUS) |
 
 Power guidance:
@@ -64,6 +64,46 @@ Failure shows:
 No working CS pin found.
 [FAIL N] no active CS
 ```
+
+## Joystick Bring-Up (Serial Only)
+
+If you want to verify joystick input without audio, use:
+
+- `raspberry_pi_pico_joystick_diag/raspberry_pi_pico_joystick_diag.ino`
+
+### Pico Wiring (KY-023)
+
+| KY-023 Pin | Pico GPIO | Pico Physical Pin |
+| ---------- | --------- | ----------------- |
+| GND        | GND       | 23 (recommended)  |
+| +5V        | 3V3       | 36                |
+| VRx        | GP26      | 31                |
+| VRy        | GP27      | 32                |
+| SW         | GP15      | 20                |
+
+Important:
+
+- Power the joystick from Pico 3V3, not 5V.
+- The button line is active LOW (`PRESSED` when grounded).
+
+### Serial Test Steps
+
+1. Upload joystick sketch.
+2. Open Serial Monitor at 115200 baud.
+3. Leave stick untouched for startup calibration.
+4. Move stick and press button.
+
+Expected stream:
+
+```text
+rawX=... rawY=... normX=... normY=... sw=released
+rawX=... rawY=... normX=... normY=... sw=PRESSED
+```
+
+Commands in serial monitor:
+
+- `c` recalibrates center (leave stick untouched)
+- `h` prints help
 
 ## Setup & Running on Mac (Prototype)
 

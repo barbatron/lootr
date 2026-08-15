@@ -9,13 +9,13 @@ Primary hardware target is Raspberry Pi Pico 2020 (RP2040).
 
 ## Hardware Bill of Materials
 
-| Component | Part / Notes |
-| --- | --- |
-| MCU | Raspberry Pi Pico 2020 (RP2040) |
-| Input | KY-023 analog thumbstick module (X, Y potentiometers + push-button) |
-| Storage | MicroSD card reader (SPI interface) |
+| Component    | Part / Notes                                                                            |
+| ------------ | --------------------------------------------------------------------------------------- |
+| MCU          | Raspberry Pi Pico 2020 (RP2040)                                                         |
+| Input        | KY-023 analog thumbstick module (X, Y potentiometers + push-button)                     |
+| Storage      | MicroSD card reader (SPI interface)                                                     |
 | Audio output | External path is project-dependent; this repo primarily validates SD and input behavior |
-| Misc | MicroSD card, short jumper wires, stable USB power |
+| Misc         | MicroSD card, short jumper wires, stable USB power                                      |
 
 ---
 
@@ -23,16 +23,17 @@ Primary hardware target is Raspberry Pi Pico 2020 (RP2040).
 
 ### MicroSD Card Reader -> Raspberry Pi Pico 2020
 
-| SD Reader Pin | Pico GPIO | Pico Physical Pin |
-| --- | --- | --- |
-| CS | GP17 | 22 |
-| MOSI / DI | GP19 | 25 |
-| MISO / DO | GP16 | 21 |
-| SCK | GP18 | 24 |
-| VCC | 3V3 or VBUS | 36 (3V3) or 40 (VBUS) |
-| GND | GND | 23 (recommended) |
+| SD Reader Pin | Pico GPIO   | Pico Physical Pin     |
+| ------------- | ----------- | --------------------- |
+| CS            | GP17        | 22                    |
+| MOSI / DI     | GP19        | 25                    |
+| MISO / DO     | GP16        | 21                    |
+| SCK           | GP18        | 24                    |
+| VCC           | 3V3 or VBUS | 36 (3V3) or 40 (VBUS) |
+| GND           | GND         | 23 (recommended)      |
 
 Notes:
+
 - Use GPIO labels (GP16..GP19), not only physical location descriptions.
 - Start with 3V3 VCC. If init fails and module supports 5V input, test VBUS.
 - Keep MISO/DO logic safe for RP2040 inputs.
@@ -41,13 +42,13 @@ Notes:
 
 Suggested mapping for diagnostics/prototyping:
 
-| Thumbstick Pin | Pico Pin | Notes |
-| --- | --- | --- |
-| VCC | 3V3 | |
-| GND | GND | |
-| VRx | GP26 (ADC0) | Joystick X axis |
-| VRy | GP27 (ADC1) | Joystick Y axis |
-| SW | GP15 | Active LOW with pull-up |
+| Thumbstick Pin | Pico Pin    | Notes                   |
+| -------------- | ----------- | ----------------------- |
+| VCC            | 3V3         |                         |
+| GND            | GND         |                         |
+| VRx            | GP26 (ADC0) | Joystick X axis         |
+| VRy            | GP27 (ADC1) | Joystick Y axis         |
+| SW             | GP15        | Active LOW with pull-up |
 
 > ADC conversion note: scale to -1.0..1.0 from midpoint.
 
@@ -90,12 +91,12 @@ sox input.wav -r 44100 -c 1 -e signed -b 16 output.raw
 
 Angle convention: 0 degrees = right, 90 = down, 180 = left, 270 = up.
 
-| Category | Keywords | Angle |
-| --- | --- | --- |
-| Metal / mechanical | metal, can, gun, pipe, blade, wire | 270 |
-| Minerals / earth | charcoal, sulfur, sulphur, stone, ore, coal | 180 |
-| Wood | wood, plank, stick, log | 0 |
-| Everything else | fallback | 90 |
+| Category           | Keywords                                    | Angle |
+| ------------------ | ------------------------------------------- | ----- |
+| Metal / mechanical | metal, can, gun, pipe, blade, wire          | 270   |
+| Minerals / earth   | charcoal, sulfur, sulphur, stone, ore, coal | 180   |
+| Wood               | wood, plank, stick, log                     | 0     |
+| Everything else    | fallback                                    | 90    |
 
 ---
 
@@ -128,17 +129,17 @@ spread = SPREAD_AT_CENTER - clamp(amplitude, 0, 1) * (SPREAD_AT_CENTER - SPREAD_
 
 ## Key Constants
 
-| Constant | Value | Description |
-| --- | --- | --- |
-| PLAY_INTERVAL_MS | 180 | Minimum ms between sample triggers |
-| DEADZONE | 0.05 | Amplitude threshold |
-| SPREAD_AT_CENTER | 180.0 | Max spread at center |
-| SPREAD_AT_EDGE | 20.0 | Min spread at edge |
+| Constant         | Value | Description                        |
+| ---------------- | ----- | ---------------------------------- |
+| PLAY_INTERVAL_MS | 180   | Minimum ms between sample triggers |
+| DEADZONE         | 0.05  | Amplitude threshold                |
+| SPREAD_AT_CENTER | 180.0 | Max spread at center               |
+| SPREAD_AT_EDGE   | 20.0  | Min spread at edge                 |
 
 ---
 
 ## Legacy Teensy Notes
 
 Teensy 4.0 PlatformIO environments remain in this repository for backward
-compatibility and prior hardware iterations. They are not the primary target
-for ongoing bring-up.
+compatibility and prior hardware iterations. They are not the primary target for
+ongoing bring-up.

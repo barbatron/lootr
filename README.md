@@ -121,6 +121,65 @@ source .venv/bin/activate
 python proto.py
 ```
 
+## System Overview (Handheld Target)
+
+The next phase is a standalone handheld build that keeps the current Pico + SD
+input path and adds battery-powered audio output.
+
+```mermaid
+flowchart LR
+	BATT[USB Power Bank 5V] --> SW[Main Power Switch]
+	SW --> PICO[Raspberry Pi Pico 2020]
+	SW --> AMP[LM386 Amplifier]
+
+	JOY[KY-023 Joystick] -->|VRx/VRy/SW| PICO
+	SD[MicroSD Reader] -->|SPI: CS/SCK/MOSI/MISO| PICO
+
+	PICO -->|PWM/DAC audio line| AMP
+	AMP --> SPK[Tiny 8 ohm Speaker]
+
+	PICO -->|USB serial for debug| HOST[Mac/PC]
+```
+
+## Handheld Build TODO
+
+### Electrical + Power
+
+- [ ] Choose power source: USB power bank 5V output (quickest path)
+- [ ] Add inline latching power switch on main 5V rail from power bank
+- [ ] Confirm common ground between Pico, SD reader, joystick, and LM386
+- [ ] Decide Pico power input path (VBUS pin from switched 5V rail)
+- [ ] Add basic decoupling near LM386 and Pico power pins
+
+### Audio Path
+
+- [ ] Choose Pico audio output strategy (PWM + RC filter or external DAC board)
+- [ ] Wire Pico audio output into LM386 input (with volume potentiometer)
+- [ ] Add LM386 recommended support components (gain/stability/output cap)
+- [ ] Connect tiny speaker and verify clean audio at low/medium volume
+- [ ] Check noise floor (USB/battery hiss, digital whine) and improve grounding/layout
+
+### Firmware + Integration
+
+- [ ] Merge SD + joystick diagnostics into one integration firmware target
+- [ ] Add serial startup summary: SD pass/fail, joystick calibration, input activity
+- [ ] Implement trigger-to-sample playback loop without requiring host connection
+- [ ] Keep serial debug mode available via USB for field diagnostics
+
+### Mechanical + UX
+
+- [ ] Choose enclosure layout for thumb access, speaker vent, and SD access
+- [ ] Strain-relief or secure jumper/headers to avoid intermittent contact
+- [ ] Mount switch in externally reachable location
+- [ ] Add simple battery-level/user status indication plan (optional)
+
+### Validation Gates
+
+- [ ] 10-minute burn-in on battery power with no resets
+- [ ] Stable SD read pass during movement/handling
+- [ ] Joystick input remains centered after repeated use
+- [ ] Audible output meets minimum loudness without clipping
+
 ## Legacy Teensy Support
 
 Teensy 4.0 PlatformIO firmware remains in this repo as legacy compatibility and

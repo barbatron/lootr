@@ -62,3 +62,25 @@ Typical use:
 1. LM386 for baseline analog validation
 2. PAM8302 for efficiency and higher practical loudness
 3. MAX98357A for digital-audio-oriented integration
+
+## MAX98357A Firmware Smoke Test
+
+Diagnostic sketch:
+
+- raspberry_pi_pico_max98357a_diag/raspberry_pi_pico_max98357a_diag.ino
+
+Expected Pico wiring for this sketch:
+
+- GP10 -> BCLK
+- GP11 -> LRC
+- GP12 -> DIN
+- GP13 -> SD (optional software mute control)
+- VBUS -> Vin
+- GND -> GND
+
+Serial commands at 115200 baud:
+
+- t = three-tone test (440/660/880 Hz)
+- s = frequency sweep
+- m = toggle SD mute
+- h = help

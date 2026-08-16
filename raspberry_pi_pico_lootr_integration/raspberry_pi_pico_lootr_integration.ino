@@ -29,8 +29,8 @@ static const int8_t PIN_AMP_SD = 13;    // optional; set -1 if hardwired high
 
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
-static const uint16_t PLAY_INTERVAL_MS = 160;
-static const uint16_t MAX_PLAY_MS = 220; // per trigger snippet length
+static const uint16_t PLAY_INTERVAL_MS = 115;
+static const uint16_t MAX_PLAY_MS = 180; // per trigger snippet length
 static const float DEADZONE = 0.01f;
 static const float SPREAD_AT_CENTER = 180.0f;
 static const float SPREAD_AT_EDGE = 15.0f;

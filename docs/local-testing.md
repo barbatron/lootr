@@ -74,7 +74,8 @@ Expected behavior:
 
 - Boot log prints `Ready.` and asset count
 - Hold joystick button and move stick to trigger short `.raw` playback snippets
-- Serial prints `play:` lines with angle, amplitude, spread, and mapped target angle
+- Serial prints `play:` lines with angle, amplitude, spread, and mapped target
+  angle
 
 Commands:
 

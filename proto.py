@@ -52,7 +52,7 @@ ASSETS_DIR = "assets"
 
 # Minimum time between sample triggers (milliseconds)
 # Configured to 120ms to match Rust's rapid and satisfying hover-loot pacing
-PLAY_INTERVAL_MS = 190
+PLAY_INTERVAL_MS = 160
 
 # Generic "transfer" layer sound context — plays simultaneously with the material sound
 # to glue the rapid-fire triggers together into a physical "mass loot" feeling.

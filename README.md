@@ -27,6 +27,10 @@ Use the Pico SD diagnostics sketch:
 
 - `raspberry_pi_pico_sd_diag/raspberry_pi_pico_sd_diag.ino`
 
+Integrated SD + joystick + MAX98357A playback sketch:
+
+- `raspberry_pi_pico_lootr_integration/raspberry_pi_pico_lootr_integration.ino`
+
 This sketch continuously verifies SD initialization and file enumeration and is
 the canonical hardware bring-up path.
 
@@ -114,6 +118,42 @@ Commands in serial monitor:
 
 - `c` recalibrates center (leave stick untouched)
 - `h` prints help
+
+## Integrated Playback Bring-Up (SD + Joystick + MAX98357A)
+
+Sketch:
+
+- `raspberry_pi_pico_lootr_integration/raspberry_pi_pico_lootr_integration.ino`
+
+Additional audio wiring for MAX98357A:
+
+| MAX98357A Pin | Pico GPIO | Pico Physical Pin |
+| ------------- | --------- | ----------------- |
+| BCLK          | GP10      | 14                |
+| LRC           | GP11      | 15                |
+| DIN           | GP12      | 16                |
+| SD            | GP13      | 17                |
+| GND           | GND       | 23 or 38          |
+| Vin           | VBUS / 5V | 40                |
+
+Asset requirements on SD root:
+
+- 16-bit signed PCM mono `.raw`
+- 44100 Hz sample rate
+- Filenames should include material keywords for angle mapping (examples: `metal`, `stone`, `wood`)
+
+Runtime serial commands at 115200:
+
+- `c` recalibrate joystick center
+- `r` rescan assets on SD
+- `s` print status
+- `p` play first asset test snippet
+
+Behavior:
+
+- Hold joystick button and move stick direction to trigger playback.
+- Joystick angle picks material category.
+- Joystick amplitude changes selection spread (center = broad/random, edge = tighter).
 
 ## Setup & Running on Mac (Prototype)
 

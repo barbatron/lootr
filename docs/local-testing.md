@@ -63,3 +63,28 @@ If joystick values are stuck:
 
 - Verify joystick VCC is 3.3V, not 5V
 - Verify VRx/VRy are on ADC pins (GP26/GP27)
+
+## 5) Integrated Playback Validation
+
+Sketch:
+
+- ../raspberry_pi_pico_lootr_integration/raspberry_pi_pico_lootr_integration.ino
+
+Expected behavior:
+
+- Boot log prints `Ready.` and asset count
+- Hold joystick button and move stick to trigger short `.raw` playback snippets
+- Serial prints `play:` lines with angle, amplitude, spread, and mapped target angle
+
+Commands:
+
+- c : joystick recalibration
+- r : SD asset rescan
+- s : status
+- p : play first asset snippet
+
+If no sound but serial `play:` appears:
+
+- Confirm MAX98357A Vin is powered (VBUS/5V preferred)
+- Confirm SD pin on amp is held HIGH (or connected to GP13 for this sketch)
+- Confirm speaker is only on amp + / - pads and not tied to GND

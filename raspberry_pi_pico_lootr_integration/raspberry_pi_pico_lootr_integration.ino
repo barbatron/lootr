@@ -29,22 +29,41 @@ static const int8_t PIN_AMP_SD = 13;    // optional; set -1 if hardwired high
 
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
-static const uint16_t PLAY_INTERVAL_MS = 150;
+static const uint16_t PLAY_INTERVAL_MS = 160;
 static const uint16_t MAX_PLAY_MS = 220; // per trigger snippet length
-static const float DEADZONE = 0.05f;
+static const float DEADZONE = 0.01f;
 static const float SPREAD_AT_CENTER = 180.0f;
-static const float SPREAD_AT_EDGE = 20.0f;
+static const float SPREAD_AT_EDGE = 15.0f;
+
+static const char* TRANSFER_LAYER_TOKEN = "cloth";
+static const float MATERIAL_GAIN_MIN = 0.90f;
+static const float MATERIAL_GAIN_MAX = 1.00f;
+static const float TRANSFER_GAIN_MIN = 0.20f;
+static const float TRANSFER_GAIN_MAX = 0.40f;
 
 static const int MAX_ASSETS = 320;
 
+enum MaterialGroup : uint8_t {
+  GROUP_OTHER = 0,
+  GROUP_METAL = 1,
+  GROUP_ORE = 2,
+  GROUP_WOOD = 3,
+  GROUP_PLASTIC = 4,
+  GROUP_WATER = 5,
+  GROUP_CLOTH = 6,
+  GROUP_COUNT = 7,
+};
+
 struct AssetEntry {
   char name[48];
+  uint8_t group;
   float angle;
 };
 
 AssetEntry assets[MAX_ASSETS];
 int assetCount = 0;
 int rawFilesOnCard = 0;
+int groupCounts[GROUP_COUNT] = {0};
 
 int centerX = 2048;
 int centerY = 2048;
@@ -64,6 +83,11 @@ static float angularDistance(float a, float b) {
   return fminf(diff, 360.0f - diff);
 }
 
+static float randf(float lo, float hi) {
+  float t = (float)random(0, 10000) / 10000.0f;
+  return lo + t * (hi - lo);
+}
+
 static bool hasRawExtension(const char* name) {
   size_t n = strlen(name);
   if (n < 4) return false;
@@ -77,29 +101,38 @@ static bool containsToken(const char* haystack, const char* needle) {
   return strstr(haystack, needle) != nullptr;
 }
 
-static float angleForName(const char* lowerName) {
-  // 270 = up (metal/mechanical)
+static uint8_t groupForName(const char* lowerName) {
+  if (containsToken(lowerName, "cloth")) return GROUP_CLOTH;
+  if (containsToken(lowerName, "liquid-container")) return GROUP_WATER;
+  if (containsToken(lowerName, "plastic")) return GROUP_PLASTIC;
+
+  // Match Python grouping behavior for implicit metal aliases.
   if (containsToken(lowerName, "metal") || containsToken(lowerName, "can") ||
+      containsToken(lowerName, "chainlink") || containsToken(lowerName, "spring") ||
       containsToken(lowerName, "gun") || containsToken(lowerName, "pipe") ||
       containsToken(lowerName, "blade") || containsToken(lowerName, "wire")) {
-    return 270.0f;
+    return GROUP_METAL;
   }
 
-  // 180 = left (minerals/earth)
   if (containsToken(lowerName, "charcoal") || containsToken(lowerName, "charcol") ||
       containsToken(lowerName, "sulfur") || containsToken(lowerName, "sulphur") ||
       containsToken(lowerName, "stone") || containsToken(lowerName, "ore") ||
       containsToken(lowerName, "coal")) {
-    return 180.0f;
+    return GROUP_ORE;
   }
 
-  // 0 = right (wood)
   if (containsToken(lowerName, "wood") || containsToken(lowerName, "plank") ||
       containsToken(lowerName, "stick") || containsToken(lowerName, "log")) {
-    return 0.0f;
+    return GROUP_WOOD;
   }
 
-  // fallback = 90 (down)
+  return GROUP_OTHER;
+}
+
+static float angleForGroup(uint8_t group) {
+  if (group == GROUP_METAL) return 270.0f;
+  if (group == GROUP_ORE) return 180.0f;
+  if (group == GROUP_WOOD) return 0.0f;
   return 90.0f;
 }
 
@@ -125,6 +158,7 @@ static void calibrateJoystickCenter() {
 static bool scanAssets() {
   assetCount = 0;
   rawFilesOnCard = 0;
+  for (int i = 0; i < GROUP_COUNT; i++) groupCounts[i] = 0;
 
   File root = SD.open("/");
   if (!root || !root.isDirectory()) {
@@ -161,7 +195,9 @@ static bool scanAssets() {
     strncpy(lowerName, assets[assetCount].name, sizeof(lowerName) - 1);
     lowerName[sizeof(lowerName) - 1] = '\0';
     toLowerAscii(lowerName);
-    assets[assetCount].angle = angleForName(lowerName);
+    assets[assetCount].group = groupForName(lowerName);
+    assets[assetCount].angle = angleForGroup(assets[assetCount].group);
+    groupCounts[assets[assetCount].group]++;
 
     assetCount++;
     entry.close();
@@ -171,22 +207,21 @@ static bool scanAssets() {
   return true;
 }
 
-static int pickAssetIndex(float inputAngleDeg, float maxSpreadDeg) {
-  if (assetCount <= 0) return -1;
-
-  float weights[MAX_ASSETS];
-  int indices[MAX_ASSETS];
+static int pickGroupForAngle(float inputAngleDeg, float maxSpreadDeg) {
+  float weights[GROUP_COUNT];
+  int groups[GROUP_COUNT];
   int candidateCount = 0;
   float totalWeight = 0.0f;
 
-  for (int i = 0; i < assetCount; i++) {
-    float dist = angularDistance(inputAngleDeg, assets[i].angle);
+  for (int g = 0; g < GROUP_COUNT; g++) {
+    if (groupCounts[g] <= 0) continue;
+    float dist = angularDistance(inputAngleDeg, angleForGroup((uint8_t)g));
     if (dist <= maxSpreadDeg) {
       float w = maxSpreadDeg - dist;
       w = w * w;
       if (w > 0.0f) {
         weights[candidateCount] = w;
-        indices[candidateCount] = i;
+        groups[candidateCount] = g;
         totalWeight += w;
         candidateCount++;
       }
@@ -194,59 +229,59 @@ static int pickAssetIndex(float inputAngleDeg, float maxSpreadDeg) {
   }
 
   if (candidateCount == 0 || totalWeight <= 0.0f) {
-    // Fallback to nearest asset by target angle, randomized across ties.
-    int nearest[MAX_ASSETS];
+    // Fallback to nearest group by target angle.
+    int nearest[GROUP_COUNT];
     int nearestCount = 0;
     float bestDist = 9999.0f;
     const float tieEps = 0.01f;
 
-    for (int i = 0; i < assetCount; i++) {
-      float d = angularDistance(inputAngleDeg, assets[i].angle);
+    for (int g = 0; g < GROUP_COUNT; g++) {
+      if (groupCounts[g] <= 0) continue;
+      float d = angularDistance(inputAngleDeg, angleForGroup((uint8_t)g));
       if (d + tieEps < bestDist) {
         bestDist = d;
         nearestCount = 0;
-        nearest[nearestCount++] = i;
+        nearest[nearestCount++] = g;
       } else if (fabsf(d - bestDist) <= tieEps) {
-        nearest[nearestCount++] = i;
+        nearest[nearestCount++] = g;
       }
     }
 
     if (nearestCount <= 0) return -1;
-
-    int pick = nearest[random(0, nearestCount)];
-    if (nearestCount > 1 && pick == lastPlayedIndex) {
-      // Nudge away from exact immediate repeats when alternatives exist.
-      int pick2 = nearest[random(0, nearestCount)];
-      if (pick2 != pick) pick = pick2;
-    }
-    return pick;
+    return nearest[random(0, nearestCount)];
   }
 
   float r = ((float)random(0, 10000) / 10000.0f) * totalWeight;
   float accum = 0.0f;
-  int selected = indices[candidateCount - 1];
   for (int i = 0; i < candidateCount; i++) {
     accum += weights[i];
-    if (r <= accum) {
-      selected = indices[i];
-      break;
+    if (r <= accum) return groups[i];
+  }
+  return groups[candidateCount - 1];
+}
+
+static int pickAssetInGroup(uint8_t group, int avoidIndex) {
+  int candidates[MAX_ASSETS];
+  int count = 0;
+
+  for (int i = 0; i < assetCount; i++) {
+    if (assets[i].group == group) {
+      candidates[count++] = i;
     }
   }
+  if (count <= 0) return -1;
 
-  if (candidateCount > 1 && selected == lastPlayedIndex) {
-    // One weighted re-roll to reduce obvious repetition at fixed stick positions.
-    float r2 = ((float)random(0, 10000) / 10000.0f) * totalWeight;
-    float accum2 = 0.0f;
-    for (int i = 0; i < candidateCount; i++) {
-      accum2 += weights[i];
-      if (r2 <= accum2 && indices[i] != selected) {
-        selected = indices[i];
-        break;
-      }
-    }
+  int pick = candidates[random(0, count)];
+  if (count > 1 && pick == avoidIndex) {
+    int pick2 = candidates[random(0, count)];
+    if (pick2 != pick) pick = pick2;
   }
+  return pick;
+}
 
-  return selected;
+static int pickTransferAssetIndex(int avoidIndex) {
+  int transfer = pickAssetInGroup(GROUP_CLOTH, avoidIndex);
+  return transfer;
 }
 
 static void drainI2SForSilence(uint32_t ms) {
@@ -256,40 +291,70 @@ static void drainI2SForSilence(uint32_t ms) {
   }
 }
 
-static bool playRawSnippet(const char* filename, uint16_t maxMs) {
-  File f = SD.open(filename, FILE_READ);
-  if (!f) {
+static bool playRawSnippetMixed(const char* primaryFilename,
+                                const char* transferFilename,
+                                uint16_t maxMs,
+                                float materialGain,
+                                float transferGain) {
+  File material = SD.open(primaryFilename, FILE_READ);
+  if (!material) {
     Serial.print("open failed: ");
-    Serial.println(filename);
+    Serial.println(primaryFilename);
     return false;
+  }
+
+  File transfer;
+  bool hasTransfer = false;
+  if (transferFilename && transferFilename[0] != '\0') {
+    transfer = SD.open(transferFilename, FILE_READ);
+    hasTransfer = (bool)transfer;
   }
 
   const uint32_t maxBytes = (uint32_t)maxMs * (I2S_SAMPLE_RATE * 2UL) / 1000UL;
   // Mono 16-bit input => 2 bytes/sample.
   uint32_t playedBytes = 0;
 
-  static uint8_t buf[512];
-  while (f.available() && playedBytes < maxBytes) {
-    int toRead = sizeof(buf);
+  static uint8_t materialBuf[512];
+  static uint8_t transferBuf[512];
+  while (material.available() && playedBytes < maxBytes) {
+    int toRead = sizeof(materialBuf);
     if (maxBytes - playedBytes < (uint32_t)toRead) {
       toRead = (int)(maxBytes - playedBytes);
     }
 
-    int n = f.read(buf, toRead);
-    if (n <= 0) break;
+    int nMat = material.read(materialBuf, toRead);
+    if (nMat <= 0) break;
 
-    // Ensure even count for 16-bit sample reads.
-    if (n & 1) n--;
-
-    for (int i = 0; i < n; i += 2) {
-      int16_t s = (int16_t)((uint16_t)buf[i] | ((uint16_t)buf[i + 1] << 8));
-      i2s.write16(s, s); // duplicate mono into L/R
+    int nTr = 0;
+    if (hasTransfer) {
+      nTr = transfer.read(transferBuf, toRead);
+      if (nTr < 0) nTr = 0;
     }
 
-    playedBytes += (uint32_t)n;
+    // Ensure even count for 16-bit sample reads.
+    if (nMat & 1) nMat--;
+    if (nTr & 1) nTr--;
+
+    for (int i = 0; i < nMat; i += 2) {
+      int16_t sMat = (int16_t)((uint16_t)materialBuf[i] | ((uint16_t)materialBuf[i + 1] << 8));
+      int16_t sTr = 0;
+      if (hasTransfer && i < nTr) {
+        sTr = (int16_t)((uint16_t)transferBuf[i] | ((uint16_t)transferBuf[i + 1] << 8));
+      }
+
+      float mixed = (float)sMat * materialGain + (float)sTr * transferGain;
+      if (mixed > 32767.0f) mixed = 32767.0f;
+      if (mixed < -32768.0f) mixed = -32768.0f;
+
+      int16_t out = (int16_t)mixed;
+      i2s.write16(out, out); // duplicate mono into L/R
+    }
+
+    playedBytes += (uint32_t)nMat;
   }
 
-  f.close();
+  material.close();
+  if (hasTransfer) transfer.close();
   i2s.flush();
   return true;
 }
@@ -369,7 +434,9 @@ void setup() {
 
   // Immediate audible confirmation path.
   if (assetCount > 0) {
-    playRawSnippet(assets[0].name, 120);
+    int transferIdx = pickTransferAssetIndex(0);
+    const char* transferName = (transferIdx >= 0 && transferIdx != 0) ? assets[transferIdx].name : nullptr;
+    playRawSnippetMixed(assets[0].name, transferName, 120, 0.95f, 0.25f);
   }
 }
 
@@ -391,7 +458,11 @@ void loop() {
       }
       printStatus();
     } else if (c == 'p' || c == 'P') {
-      if (assetCount > 0) playRawSnippet(assets[0].name, 120);
+      if (assetCount > 0) {
+        int transferIdx = pickTransferAssetIndex(0);
+        const char* transferName = (transferIdx >= 0 && transferIdx != 0) ? assets[transferIdx].name : nullptr;
+        playRawSnippetMixed(assets[0].name, transferName, 120, 0.95f, 0.25f);
+      }
     } else if (c == 's' || c == 'S') {
       printStatus();
     }
@@ -410,8 +481,20 @@ void loop() {
 
   unsigned long now = millis();
   if (triggerPressed && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
-    int idx = pickAssetIndex(angleDeg, spread);
+    int chosenGroup = pickGroupForAngle(angleDeg, spread);
+    int idx = -1;
+    if (chosenGroup >= 0) {
+      idx = pickAssetInGroup((uint8_t)chosenGroup, lastPlayedIndex);
+    }
     if (idx >= 0) {
+      int transferIdx = -1;
+      if (assets[idx].group != GROUP_CLOTH) {
+        transferIdx = pickTransferAssetIndex(idx);
+      }
+      const char* transferName = (transferIdx >= 0) ? assets[transferIdx].name : nullptr;
+      float materialGain = randf(MATERIAL_GAIN_MIN, MATERIAL_GAIN_MAX);
+      float transferGain = (transferName != nullptr) ? randf(TRANSFER_GAIN_MIN, TRANSFER_GAIN_MAX) : 0.0f;
+
       Serial.print("play: ");
       Serial.print(assets[idx].name);
       Serial.print(" angle=");
@@ -423,7 +506,7 @@ void loop() {
       Serial.print(" target=");
       Serial.println(assets[idx].angle, 1);
 
-      playRawSnippet(assets[idx].name, MAX_PLAY_MS);
+      playRawSnippetMixed(assets[idx].name, transferName, MAX_PLAY_MS, materialGain, transferGain);
       lastPlayedIndex = idx;
       lastPlayMs = now;
     }

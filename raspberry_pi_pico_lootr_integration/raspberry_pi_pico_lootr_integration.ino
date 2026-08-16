@@ -29,13 +29,13 @@ static const int8_t PIN_AMP_SD = 13;    // optional; set -1 if hardwired high
 
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
-static const uint16_t PLAY_INTERVAL_MS = 190;
+static const uint16_t PLAY_INTERVAL_MS = 150;
 static const uint16_t MAX_PLAY_MS = 220; // per trigger snippet length
 static const float DEADZONE = 0.05f;
 static const float SPREAD_AT_CENTER = 180.0f;
 static const float SPREAD_AT_EDGE = 20.0f;
 
-static const int MAX_ASSETS = 192;
+static const int MAX_ASSETS = 320;
 
 struct AssetEntry {
   char name[48];
@@ -44,10 +44,12 @@ struct AssetEntry {
 
 AssetEntry assets[MAX_ASSETS];
 int assetCount = 0;
+int rawFilesOnCard = 0;
 
 int centerX = 2048;
 int centerY = 2048;
 unsigned long lastPlayMs = 0;
+int lastPlayedIndex = -1;
 
 I2S i2s(OUTPUT);
 
@@ -122,6 +124,7 @@ static void calibrateJoystickCenter() {
 
 static bool scanAssets() {
   assetCount = 0;
+  rawFilesOnCard = 0;
 
   File root = SD.open("/");
   if (!root || !root.isDirectory()) {
@@ -129,7 +132,7 @@ static bool scanAssets() {
     return false;
   }
 
-  while (assetCount < MAX_ASSETS) {
+  while (true) {
     File entry = root.openNextFile();
     if (!entry) break;
 
@@ -140,6 +143,13 @@ static bool scanAssets() {
 
     const char* n = entry.name();
     if (!n || !hasRawExtension(n)) {
+      entry.close();
+      continue;
+    }
+
+    rawFilesOnCard++;
+
+    if (assetCount >= MAX_ASSETS) {
       entry.close();
       continue;
     }
@@ -184,26 +194,59 @@ static int pickAssetIndex(float inputAngleDeg, float maxSpreadDeg) {
   }
 
   if (candidateCount == 0 || totalWeight <= 0.0f) {
-    // Fallback to nearest asset by target angle.
-    int best = 0;
+    // Fallback to nearest asset by target angle, randomized across ties.
+    int nearest[MAX_ASSETS];
+    int nearestCount = 0;
     float bestDist = 9999.0f;
+    const float tieEps = 0.01f;
+
     for (int i = 0; i < assetCount; i++) {
       float d = angularDistance(inputAngleDeg, assets[i].angle);
-      if (d < bestDist) {
+      if (d + tieEps < bestDist) {
         bestDist = d;
-        best = i;
+        nearestCount = 0;
+        nearest[nearestCount++] = i;
+      } else if (fabsf(d - bestDist) <= tieEps) {
+        nearest[nearestCount++] = i;
       }
     }
-    return best;
+
+    if (nearestCount <= 0) return -1;
+
+    int pick = nearest[random(0, nearestCount)];
+    if (nearestCount > 1 && pick == lastPlayedIndex) {
+      // Nudge away from exact immediate repeats when alternatives exist.
+      int pick2 = nearest[random(0, nearestCount)];
+      if (pick2 != pick) pick = pick2;
+    }
+    return pick;
   }
 
   float r = ((float)random(0, 10000) / 10000.0f) * totalWeight;
   float accum = 0.0f;
+  int selected = indices[candidateCount - 1];
   for (int i = 0; i < candidateCount; i++) {
     accum += weights[i];
-    if (r <= accum) return indices[i];
+    if (r <= accum) {
+      selected = indices[i];
+      break;
+    }
   }
-  return indices[candidateCount - 1];
+
+  if (candidateCount > 1 && selected == lastPlayedIndex) {
+    // One weighted re-roll to reduce obvious repetition at fixed stick positions.
+    float r2 = ((float)random(0, 10000) / 10000.0f) * totalWeight;
+    float accum2 = 0.0f;
+    for (int i = 0; i < candidateCount; i++) {
+      accum2 += weights[i];
+      if (r2 <= accum2 && indices[i] != selected) {
+        selected = indices[i];
+        break;
+      }
+    }
+  }
+
+  return selected;
 }
 
 static void drainI2SForSilence(uint32_t ms) {
@@ -261,8 +304,12 @@ static void printHelp() {
 }
 
 static void printStatus() {
-  Serial.print("assets=");
+  Serial.print("assetsIndexed=");
   Serial.print(assetCount);
+  Serial.print(" rawOnCard=");
+  Serial.print(rawFilesOnCard);
+  Serial.print(" dropped=");
+  Serial.print(rawFilesOnCard - assetCount);
   Serial.print(" centerX=");
   Serial.print(centerX);
   Serial.print(" centerY=");
@@ -308,6 +355,10 @@ void setup() {
   if (!scanAssets()) {
     Serial.println("ERROR: asset scan failed");
   }
+  if (rawFilesOnCard > assetCount) {
+    Serial.print("WARN: asset cap reached. Increase MAX_ASSETS to index all files. dropped=");
+    Serial.println(rawFilesOnCard - assetCount);
+  }
 
   calibrateJoystickCenter();
   randomSeed((uint32_t)analogRead(PIN_JOY_X) ^ ((uint32_t)analogRead(PIN_JOY_Y) << 10));
@@ -334,6 +385,10 @@ void loop() {
     } else if (c == 'r' || c == 'R') {
       bool ok = scanAssets();
       Serial.println(ok ? "rescan ok" : "rescan failed");
+      if (ok && rawFilesOnCard > assetCount) {
+        Serial.print("WARN: asset cap reached. dropped=");
+        Serial.println(rawFilesOnCard - assetCount);
+      }
       printStatus();
     } else if (c == 'p' || c == 'P') {
       if (assetCount > 0) playRawSnippet(assets[0].name, 120);
@@ -369,6 +424,7 @@ void loop() {
       Serial.println(assets[idx].angle, 1);
 
       playRawSnippet(assets[idx].name, MAX_PLAY_MS);
+      lastPlayedIndex = idx;
       lastPlayMs = now;
     }
   }

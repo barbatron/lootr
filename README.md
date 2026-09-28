@@ -140,7 +140,8 @@ Asset requirements on SD root:
 
 - 16-bit signed PCM mono `.raw`
 - 44100 Hz sample rate
-- Filenames should include material keywords for angle mapping (examples: `metal`, `stone`, `wood`)
+- Filenames should include material keywords for angle mapping (examples:
+  `metal`, `stone`, `wood`)
 
 Runtime serial commands at 115200:
 
@@ -153,7 +154,18 @@ Behavior:
 
 - Hold joystick button and move stick direction to trigger playback.
 - Joystick angle picks material category.
-- Joystick amplitude changes selection spread (center = broad/random, edge = tighter).
+- Joystick amplitude changes selection spread (center = broad/random, edge =
+  tighter).
+
+Startup status signaling (on `LED_BUILTIN` if present, plus chirps when I2S
+audio is available):
+
+- Booted and about to start SD work: single short blink/chirp.
+- SD asset scan complete: double short blink/chirp.
+- SD initialization or asset scan failed: long blink/chirp followed by short
+  blink/chirp.
+- MAX98357A / I2S init failed: long blink plus two short blinks (repeats while
+  halted).
 
 ## Setup & Running on Mac (Prototype)
 

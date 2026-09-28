@@ -27,6 +27,12 @@ static const uint8_t PIN_I2S_BCLK = 10;
 static const uint8_t PIN_I2S_DOUT = 12; // Pico -> DIN on amp
 static const int8_t PIN_AMP_SD = 13;    // optional; set -1 if hardwired high
 
+#if defined(LED_BUILTIN)
+static const int8_t PIN_STATUS_LED = LED_BUILTIN;
+#else
+static const int8_t PIN_STATUS_LED = -1;
+#endif
+
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
 static const uint16_t PLAY_INTERVAL_MS = 115;
@@ -71,6 +77,68 @@ unsigned long lastPlayMs = 0;
 int lastPlayedIndex = -1;
 
 I2S i2s(OUTPUT);
+bool soundReady = false;
+
+static const uint16_t STATUS_SHORT_MS = 95;
+static const uint16_t STATUS_LONG_MS = 300;
+static const uint16_t STATUS_GAP_MS = 95;
+
+static void playStatusChirp(uint16_t freqHz, uint16_t durationMs, float amplitude = 0.16f) {
+  if (!soundReady || freqHz == 0) {
+    delay(durationMs);
+    return;
+  }
+
+  const uint32_t totalSamples = (uint32_t)((I2S_SAMPLE_RATE * durationMs) / 1000UL);
+  const float phaseStep = (2.0f * PI * (float)freqHz) / (float)I2S_SAMPLE_RATE;
+  float phase = 0.0f;
+
+  for (uint32_t i = 0; i < totalSamples; i++) {
+    int16_t s = (int16_t)(sinf(phase) * 32767.0f * amplitude);
+    i2s.write16(s, s);
+    phase += phaseStep;
+    if (phase > 2.0f * PI) {
+      phase -= 2.0f * PI;
+    }
+  }
+  i2s.flush();
+}
+
+static void runStatusStep(uint16_t onMs, uint16_t offMs, uint16_t chirpFreqHz) {
+  if (PIN_STATUS_LED >= 0) {
+    digitalWrite(PIN_STATUS_LED, HIGH);
+  }
+
+  playStatusChirp(chirpFreqHz, onMs);
+
+  if (PIN_STATUS_LED >= 0) {
+    digitalWrite(PIN_STATUS_LED, LOW);
+  }
+
+  if (offMs > 0) {
+    delay(offMs);
+  }
+}
+
+static void signalBootBeforeSdScan() {
+  runStatusStep(STATUS_SHORT_MS, STATUS_GAP_MS, 880);
+}
+
+static void signalSdScanComplete() {
+  runStatusStep(STATUS_SHORT_MS, STATUS_GAP_MS, 880);
+  runStatusStep(STATUS_SHORT_MS, STATUS_GAP_MS, 1175);
+}
+
+static void signalSdScanFailed() {
+  runStatusStep(STATUS_LONG_MS, STATUS_GAP_MS, 440);
+  runStatusStep(STATUS_SHORT_MS, STATUS_GAP_MS, 660);
+}
+
+static void signalSoundChipFailedOnce() {
+  runStatusStep(STATUS_LONG_MS, STATUS_GAP_MS, 0);
+  runStatusStep(STATUS_SHORT_MS, STATUS_GAP_MS, 0);
+  runStatusStep(STATUS_SHORT_MS, STATUS_GAP_MS, 0);
+}
 
 static float clampf(float v, float lo, float hi) {
   if (v < lo) return lo;
@@ -392,6 +460,10 @@ void setup() {
 
   analogReadResolution(12);
   pinMode(PIN_JOY_SW, INPUT_PULLUP);
+  if (PIN_STATUS_LED >= 0) {
+    pinMode(PIN_STATUS_LED, OUTPUT);
+    digitalWrite(PIN_STATUS_LED, LOW);
+  }
 
   if (PIN_AMP_SD >= 0) {
     pinMode(PIN_AMP_SD, OUTPUT);
@@ -401,8 +473,12 @@ void setup() {
   if (!i2s.setBCLK(PIN_I2S_BCLK) || !i2s.setDATA(PIN_I2S_DOUT) ||
       !i2s.setBitsPerSample(16) || !i2s.begin(I2S_SAMPLE_RATE)) {
     Serial.println("ERROR: I2S init failed");
-    while (true) delay(1000);
+    while (true) {
+      signalSoundChipFailedOnce();
+      delay(450);
+    }
   }
+  soundReady = true;
 
   // Optional soft start silence to avoid boot pops.
   drainI2SForSilence(50);
@@ -412,13 +488,20 @@ void setup() {
   SPI.setSCK(PIN_SD_SCK);
   SPI.begin();
 
+  signalBootBeforeSdScan();
+
   if (!SD.begin(PIN_SD_CS)) {
     Serial.println("ERROR: SD init failed");
+    signalSdScanFailed();
     while (true) delay(1000);
   }
 
-  if (!scanAssets()) {
+  bool scanOk = scanAssets();
+  if (!scanOk) {
     Serial.println("ERROR: asset scan failed");
+    signalSdScanFailed();
+  } else {
+    signalSdScanComplete();
   }
   if (rawFilesOnCard > assetCount) {
     Serial.print("WARN: asset cap reached. Increase MAX_ASSETS to index all files. dropped=");

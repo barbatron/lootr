@@ -14,22 +14,10 @@ if [[ "${1:-}" == "--build" ]]; then
   RUN_BUILD=1
 fi
 
-find_pio() {
-  if command -v pio >/dev/null 2>&1; then
-    command -v pio
-    return 0
-  fi
-  if [[ -x "$HOME/.platformio/penv/bin/pio" ]]; then
-    echo "$HOME/.platformio/penv/bin/pio"
-    return 0
-  fi
-  return 1
-}
-
 echo "== Lootr PlatformIO Doctor =="
 
-if ! PIO_BIN="$(find_pio)"; then
-  echo "FAIL: PlatformIO CLI not found (PATH or ~/.platformio/penv/bin/pio)." >&2
+if ! PIO_BIN="$(./scripts/find_pio.sh)"; then
+  echo "FAIL: PlatformIO CLI not found." >&2
   exit 1
 fi
 

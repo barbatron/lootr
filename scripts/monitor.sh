@@ -24,20 +24,8 @@ if [[ -n "$SECONDS_LIMIT" ]] && ! [[ "$SECONDS_LIMIT" =~ ^[0-9]+$ ]]; then
 	exit 2
 fi
 
-find_pio() {
-	if command -v pio >/dev/null 2>&1; then
-		command -v pio
-		return 0
-	fi
-	if [[ -x "$HOME/.platformio/penv/bin/pio" ]]; then
-		echo "$HOME/.platformio/penv/bin/pio"
-		return 0
-	fi
-	return 1
-}
-
-if ! PIO_BIN="$(find_pio)"; then
-	echo "Error: PlatformIO CLI not found (tried PATH and ~/.platformio/penv/bin/pio)."
+if ! PIO_BIN="$(./scripts/find_pio.sh)"; then
+	echo "Error: PlatformIO CLI not found."
 	exit 1
 fi
 

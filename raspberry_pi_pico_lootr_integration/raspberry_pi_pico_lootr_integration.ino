@@ -52,6 +52,10 @@ static const float TRANSFER_GAIN_MIN = 0.20f;
 static const float TRANSFER_GAIN_MAX = 0.40f;
 
 static const int MAX_ASSETS = 320;
+#ifndef ASSET_SAMPLING
+#define ASSET_SAMPLING 1.0
+#endif
+static const float ASSET_SAMPLING_RATIO = (float)(ASSET_SAMPLING);
 
 enum MaterialGroup : uint8_t {
   GROUP_OTHER = 0,
@@ -74,7 +78,11 @@ AssetEntry assets[MAX_ASSETS];
 int assetCount = 0;
 int rawFilesOnCard = 0;
 int wavFilesOnCard = 0;
+int skippedBySampling = 0;
+int droppedByCap = 0;
 int groupCounts[GROUP_COUNT] = {0};
+int groupAssetCounts[GROUP_COUNT] = {0};
+int groupAssetIndices[GROUP_COUNT][MAX_ASSETS];
 
 int centerX = 2048;
 int centerY = 2048;
@@ -225,6 +233,24 @@ static float randf(float lo, float hi) {
   return lo + t * (hi - lo);
 }
 
+static uint32_t hashFNV1a32(const char* s) {
+  uint32_t hash = 2166136261u;
+  while (*s) {
+    hash ^= (uint8_t)(*s);
+    hash *= 16777619u;
+    s++;
+  }
+  return hash;
+}
+
+static bool includeAssetBySampling(const char* name) {
+  if (ASSET_SAMPLING_RATIO >= 1.0f) return true;
+  if (ASSET_SAMPLING_RATIO <= 0.0f) return false;
+  uint32_t h = hashFNV1a32(name);
+  float unit = (float)(h & 0x00FFFFFFu) / 16777216.0f;
+  return unit < ASSET_SAMPLING_RATIO;
+}
+
 static bool hasRawExtension(const char* name) {
   size_t n = strlen(name);
   if (n < 4) return false;
@@ -305,7 +331,12 @@ static bool scanAssets() {
   assetCount = 0;
   rawFilesOnCard = 0;
   wavFilesOnCard = 0;
-  for (int i = 0; i < GROUP_COUNT; i++) groupCounts[i] = 0;
+  skippedBySampling = 0;
+  droppedByCap = 0;
+  for (int i = 0; i < GROUP_COUNT; i++) {
+    groupCounts[i] = 0;
+    groupAssetCounts[i] = 0;
+  }
 
   File root = SD.open("/");
   if (!root || !root.isDirectory()) {
@@ -338,8 +369,14 @@ static bool scanAssets() {
     }
 
     wavFilesOnCard++;
+    if (!includeAssetBySampling(n)) {
+      skippedBySampling++;
+      entry.close();
+      continue;
+    }
 
     if (assetCount >= MAX_ASSETS) {
+      droppedByCap++;
       entry.close();
       continue;
     }
@@ -354,6 +391,9 @@ static bool scanAssets() {
     assets[assetCount].group = groupForName(lowerName);
     assets[assetCount].angle = angleForGroup(assets[assetCount].group);
     groupCounts[assets[assetCount].group]++;
+    if (groupAssetCounts[assets[assetCount].group] < MAX_ASSETS) {
+      groupAssetIndices[assets[assetCount].group][groupAssetCounts[assets[assetCount].group]++] = assetCount;
+    }
 
     assetCount++;
     entry.close();
@@ -417,20 +457,16 @@ static int pickGroupForAngle(float inputAngleDeg, float maxSpreadDeg) {
 }
 
 static int pickAssetInGroup(uint8_t group, int avoidIndex) {
-  int candidates[MAX_ASSETS];
-  int count = 0;
-
-  for (int i = 0; i < assetCount; i++) {
-    if (assets[i].group == group) {
-      candidates[count++] = i;
-    }
-  }
+  if (group >= GROUP_COUNT) return -1;
+  int count = groupAssetCounts[group];
   if (count <= 0) return -1;
 
-  int pick = candidates[random(0, count)];
+  int pickPos = random(0, count);
+  int pick = groupAssetIndices[group][pickPos];
   if (count > 1 && pick == avoidIndex) {
-    int pick2 = candidates[random(0, count)];
-    if (pick2 != pick) pick = pick2;
+    int pickPos2 = random(0, count - 1);
+    if (pickPos2 >= pickPos) pickPos2++;
+    pick = groupAssetIndices[group][pickPos2];
   }
   return pick;
 }
@@ -564,8 +600,14 @@ static void printStatus() {
   Serial.print(wavFilesOnCard);
   Serial.print(" rawOnCard=");
   Serial.print(rawFilesOnCard);
+  Serial.print(" sampling=");
+  Serial.print(ASSET_SAMPLING_RATIO, 2);
+  Serial.print(" sampledOut=");
+  Serial.print(skippedBySampling);
+  Serial.print(" cappedOut=");
+  Serial.print(droppedByCap);
   Serial.print(" dropped=");
-  Serial.print(wavFilesOnCard - assetCount);
+  Serial.print(skippedBySampling + droppedByCap);
   Serial.print(" centerX=");
   Serial.print(centerX);
   Serial.print(" centerY=");
@@ -689,9 +731,12 @@ void setup() {
   } else {
     signalSdScanComplete();
   }
-  if (wavFilesOnCard > assetCount) {
+  if (droppedByCap > 0) {
     Serial.print("WARN: asset cap reached. Increase MAX_ASSETS to index all WAV files. dropped=");
-    Serial.println(wavFilesOnCard - assetCount);
+    Serial.println(droppedByCap);
+  }
+  if (assetCount == 0 && wavFilesOnCard > 0) {
+    Serial.println("WARN: no WAV assets selected. Increase ASSET_SAMPLING.");
   }
 
   calibrateJoystickCenter();
@@ -759,9 +804,12 @@ void loop() {
     } else if (c == 'r' || c == 'R') {
       bool ok = scanAssets();
       Serial.println(ok ? "rescan ok" : "rescan failed");
-      if (ok && wavFilesOnCard > assetCount) {
+      if (ok && droppedByCap > 0) {
         Serial.print("WARN: asset cap reached. dropped=");
-        Serial.println(wavFilesOnCard - assetCount);
+        Serial.println(droppedByCap);
+      }
+      if (ok && assetCount == 0 && wavFilesOnCard > 0) {
+        Serial.println("WARN: no WAV assets selected. Increase ASSET_SAMPLING.");
       }
       printStatus();
     } else if (c == 'p' || c == 'P') {

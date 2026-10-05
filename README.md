@@ -43,6 +43,22 @@ pio run -e pico_lootr_integration --target upload
 ./scripts/monitor.sh
 ```
 
+Firmware upload helper:
+
+```bash
+./scripts/pio_upload.sh
+```
+
+Asset-count tuning without changing SD contents (compile-time sampling):
+
+```bash
+./scripts/pio_upload.sh --asset-sampling 0.70
+```
+
+`--asset-sampling` accepts values in `0.0..1.0`; lower values deterministically
+skip more WAV files during indexing, which can reduce trigger-time overhead with
+large SD libraries.
+
 Quick diagnostics:
 
 ```bash

@@ -44,7 +44,8 @@ echo "Using raw log:      $raw_log"
 echo "Compacted log path: $compact_log"
 echo ""
 echo "Uploading firmware..."
-./scripts/pio_upload.sh
+ASSET_SAMPLING=${ASSET_SAMPLING:-1}
+./scripts/pio_upload.sh --asset-sampling "$ASSET_SAMPLING"
 
 echo ""
 echo "Waiting 1s before monitor..."

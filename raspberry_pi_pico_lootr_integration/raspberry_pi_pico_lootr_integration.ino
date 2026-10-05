@@ -83,6 +83,19 @@ uint32_t triggerAttempts = 0;
 uint32_t triggerStarted = 0;
 uint32_t triggerStolen = 0;
 uint32_t triggerDropped = 0;
+uint32_t mixerFlushes = 0;
+uint32_t mixerStarveEvents = 0;
+uint64_t mixerSilencePadBytes = 0;
+
+bool verboseEvents = false;
+bool infoLogsEnabled = false;
+
+uint32_t perfWindowStartUs = 0;
+uint32_t perfLoopCount = 0;
+uint64_t perfLoopBusyUs = 0;
+uint32_t perfLoopMaxUs = 0;
+uint64_t perfAudioBusyUs = 0;
+uint32_t perfAudioMaxUs = 0;
 
 // Audio configurations (Ensure all your WAV files match these settings)
 const uint32_t SAMPLE_RATE = I2S_SAMPLE_RATE;
@@ -428,6 +441,28 @@ static int activeVoiceCount() {
   return count;
 }
 
+static void setAudioToolsLogLevel(AudioToolsLogLevel level) {
+  AudioToolsLogger.begin(Serial, level);
+  infoLogsEnabled = (level == AudioToolsLogLevel::Info);
+}
+
+static void resetPerfMetrics() {
+  perfWindowStartUs = micros();
+  perfLoopCount = 0;
+  perfLoopBusyUs = 0;
+  perfLoopMaxUs = 0;
+  perfAudioBusyUs = 0;
+  perfAudioMaxUs = 0;
+}
+
+static void updatePerfMetrics(uint32_t loopUs, uint32_t audioUs) {
+  perfLoopCount++;
+  perfLoopBusyUs += loopUs;
+  perfAudioBusyUs += audioUs;
+  if (loopUs > perfLoopMaxUs) perfLoopMaxUs = loopUs;
+  if (audioUs > perfAudioMaxUs) perfAudioMaxUs = audioUs;
+}
+
 static bool playRawSnippetMixed(const char* primaryFilename,
                                 const char* transferFilename,
                                 float materialGain,
@@ -466,17 +501,21 @@ static bool playRawSnippetMixed(const char* primaryFilename,
 
   if (target < 0) {
     triggerDropped++;
-    Serial.println("No available channels and no steal candidate.");
+    if (verboseEvents) {
+      Serial.println("No available channels and no steal candidate.");
+    }
     return false;
   }
 
-  if (stealing) {
+  if (stealing && verboseEvents) {
     Serial.print("Stealing channel "); Serial.print(target);
     Serial.print(" for "); Serial.println(primaryFilename);
-    triggerStolen++;
-  } else {
+  } else if (verboseEvents) {
     Serial.print("Triggering "); Serial.print(primaryFilename); 
     Serial.print(" on channel: "); Serial.println(target);
+  }
+  if (stealing) {
+    triggerStolen++;
   }
 
   voices[target].player->setVolume(materialGain);
@@ -499,10 +538,19 @@ static void printHelp() {
   Serial.println("  c = recalibrate joystick center");
   Serial.println("  r = rescan SD assets");
   Serial.println("  p = play one short test chirp");
+  Serial.println("  v = toggle verbose trigger logs");
+  Serial.println("  l = toggle AudioTools warning/info logs");
+  Serial.println("  z = reset perf counters");
   Serial.println("  s = print status");
 }
 
 static void printStatus() {
+  uint32_t elapsedUs = micros() - perfWindowStartUs;
+  uint32_t loopAvgUs = (perfLoopCount > 0) ? (uint32_t)(perfLoopBusyUs / perfLoopCount) : 0;
+  uint32_t audioAvgUs = (perfLoopCount > 0) ? (uint32_t)(perfAudioBusyUs / perfLoopCount) : 0;
+  float busyPct = (elapsedUs > 0) ? ((float)perfLoopBusyUs * 100.0f / (float)elapsedUs) : 0.0f;
+  float audioPct = (elapsedUs > 0) ? ((float)perfAudioBusyUs * 100.0f / (float)elapsedUs) : 0.0f;
+
   Serial.print("assetsIndexed=");
   Serial.print(assetCount);
   Serial.print(" wavOnCard=");
@@ -524,7 +572,29 @@ static void printStatus() {
   Serial.print(" trigStolen=");
   Serial.print(triggerStolen);
   Serial.print(" trigDropped=");
-  Serial.println(triggerDropped);
+  Serial.print(triggerDropped);
+  Serial.print(" mixerFlushes=");
+  Serial.print(mixerFlushes);
+  Serial.print(" starveEvents=");
+  Serial.print(mixerStarveEvents);
+  Serial.print(" silencePadBytes=");
+  Serial.print((unsigned long)mixerSilencePadBytes);
+  Serial.print(" perfBusy=");
+  Serial.print(busyPct, 1);
+  Serial.print("% perfAudio=");
+  Serial.print(audioPct, 1);
+  Serial.print("% loopAvgUs=");
+  Serial.print(loopAvgUs);
+  Serial.print(" loopMaxUs=");
+  Serial.print(perfLoopMaxUs);
+  Serial.print(" audioAvgUs=");
+  Serial.print(audioAvgUs);
+  Serial.print(" audioMaxUs=");
+  Serial.print(perfAudioMaxUs);
+  Serial.print(" verbose=");
+  Serial.print(verboseEvents ? "on" : "off");
+  Serial.print(" atLog=");
+  Serial.println(infoLogsEnabled ? "info" : "warning");
 }
 
 void setup() {
@@ -548,7 +618,7 @@ void setup() {
     digitalWrite(PIN_AMP_SD, HIGH);
   }
 
-  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Warning);
+  setAudioToolsLogLevel(AudioToolsLogLevel::Warning);
   AudioInfo info(SAMPLE_RATE, CHANNELS, BITS_PER_SAMPLE);
 
   // Configure physical I2S output
@@ -611,6 +681,7 @@ void setup() {
   randomSeed((uint32_t)analogRead(PIN_JOY_X) ^ ((uint32_t)analogRead(PIN_JOY_Y) << 10));
 
   Serial.println("Ready.");
+  resetPerfMetrics();
   printStatus();
   printHelp();
 
@@ -623,7 +694,10 @@ void setup() {
 }
 
 void loop() {
+  uint32_t loopStartUs = micros();
+
   // Pump any playing audio
+  uint32_t audioStartUs = micros();
   size_t producedBytes[MAX_VOICES] = {0};
   size_t maxProducedBytes = 0;
   for (int i = 0; i < MAX_VOICES; i++) {
@@ -643,11 +717,17 @@ void loop() {
   if (maxProducedBytes > 0) {
     for (int i = 0; i < MAX_VOICES; i++) {
       if (producedBytes[i] < maxProducedBytes) {
-        mixer.writeSilence(i, maxProducedBytes - producedBytes[i]);
+        size_t padBytes = maxProducedBytes - producedBytes[i];
+        mixer.writeSilence(i, padBytes);
+        mixerSilencePadBytes += padBytes;
       }
     }
     mixer.flushMixer();
+    mixerFlushes++;
+  } else if (activeVoiceCount() > 0) {
+    mixerStarveEvents++;
   }
+  uint32_t audioDurationUs = micros() - audioStartUs;
 
   // User input
   while (Serial.available()) {
@@ -668,6 +748,20 @@ void loop() {
       printStatus();
     } else if (c == 'p' || c == 'P') {
       playStatusChirp(1175, 120, 0.18f);
+    } else if (c == 'v' || c == 'V') {
+      verboseEvents = !verboseEvents;
+      Serial.print("verbose trigger logs: ");
+      Serial.println(verboseEvents ? "on" : "off");
+    } else if (c == 'l' || c == 'L') {
+      setAudioToolsLogLevel(infoLogsEnabled ? AudioToolsLogLevel::Warning : AudioToolsLogLevel::Info);
+      Serial.print("AudioTools logger level: ");
+      Serial.println(infoLogsEnabled ? "info" : "warning");
+    } else if (c == 'z' || c == 'Z') {
+      resetPerfMetrics();
+      mixerFlushes = 0;
+      mixerStarveEvents = 0;
+      mixerSilencePadBytes = 0;
+      Serial.println("performance counters reset");
     } else if (c == 's' || c == 'S') {
       printStatus();
     }
@@ -702,16 +796,18 @@ void loop() {
       float materialGain = randf(MATERIAL_GAIN_MIN, MATERIAL_GAIN_MAX);
       float transferGain = (transferName != nullptr) ? randf(TRANSFER_GAIN_MIN, TRANSFER_GAIN_MAX) : 0.0f;
 
-      Serial.print("play: ");
-      Serial.print(assets[idx].name);
-      Serial.print(" angle=");
-      Serial.print(angleDeg, 1);
-      Serial.print(" amp=");
-      Serial.print(amp, 2);
-      Serial.print(" spread=");
-      Serial.print(spread, 1);
-      Serial.print(" target=");
-      Serial.println(assets[idx].angle, 1);
+      if (verboseEvents) {
+        Serial.print("play: ");
+        Serial.print(assets[idx].name);
+        Serial.print(" angle=");
+        Serial.print(angleDeg, 1);
+        Serial.print(" amp=");
+        Serial.print(amp, 2);
+        Serial.print(" spread=");
+        Serial.print(spread, 1);
+        Serial.print(" target=");
+        Serial.println(assets[idx].angle, 1);
+      }
 
       if (playRawSnippetMixed(assets[idx].name, transferName, materialGain, transferGain)) {
         lastPlayedIndex = idx;
@@ -721,4 +817,7 @@ void loop() {
       triggerDropped++;
     }
   }
+
+  uint32_t loopDurationUs = micros() - loopStartUs;
+  updatePerfMetrics(loopDurationUs, audioDurationUs);
 }

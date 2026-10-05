@@ -181,6 +181,9 @@ Runtime serial commands at 115200:
 - `r` rescan assets on SD
 - `s` print status
 - `p` play one short test chirp
+- `v` toggle verbose per-trigger logs
+- `l` toggle AudioTools logger level (`warning`/`info`)
+- `z` reset runtime performance counters
 
 Behavior:
 

@@ -106,24 +106,29 @@ static const uint16_t STATUS_LONG_MS = 300;
 static const uint16_t STATUS_GAP_MS = 95;
 
 static void playStatusChirp(uint16_t freqHz, uint16_t durationMs, float amplitude = 0.16f) {
-  // if (!soundReady || freqHz == 0) {
-  //   delay(durationMs);
-  //   return;
-  // }
+  if (!soundReady || freqHz == 0 || durationMs == 0) {
+    delay(durationMs);
+    return;
+  }
 
-  // const uint32_t totalSamples = (uint32_t)((I2S_SAMPLE_RATE * durationMs) / 1000UL);
-  // const float phaseStep = (2.0f * PI * (float)freqHz) / (float)I2S_SAMPLE_RATE;
-  // float phase = 0.0f;
+  const float twoPi = 6.28318530718f;
+  float gain = amplitude;
+  if (gain < 0.0f) gain = 0.0f;
+  if (gain > 1.0f) gain = 1.0f;
 
-  // for (uint32_t i = 0; i < totalSamples; i++) {
-  //   int16_t s = (int16_t)(sinf(phase) * 32767.0f * amplitude);
-  //   i2s.write16(s, s);
-  //   phase += phaseStep;
-  //   if (phase > 2.0f * PI) {
-  //     phase -= 2.0f * PI;
-  //   }
-  // }
-  // i2s.flush();
+  const uint32_t totalSamples = (uint32_t)((I2S_SAMPLE_RATE * durationMs) / 1000UL);
+  const float phaseStep = (twoPi * (float)freqHz) / (float)I2S_SAMPLE_RATE;
+  float phase = 0.0f;
+
+  for (uint32_t i = 0; i < totalSamples; i++) {
+    int16_t s = (int16_t)(sinf(phase) * 32767.0f * gain);
+    out.write((const uint8_t*)&s, sizeof(s));
+
+    phase += phaseStep;
+    if (phase > twoPi) {
+      phase -= twoPi;
+    }
+  }
 }
 
 static void runStatusStep(uint16_t onMs, uint16_t offMs, uint16_t chirpFreqHz) {

@@ -1,10 +1,10 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
-#include <I2S.h>
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
+#include "AudioTools.h"
 
 // ---------------------------------------------------------------------------
 // Pico Lootr Integration Diagnostics
@@ -24,6 +24,7 @@ static const uint8_t PIN_JOY_SW = 15; // active LOW
 
 // MAX98357A (I2S)
 static const uint8_t PIN_I2S_BCLK = 10;
+static const uint8_t PIN_I2S_LRCLK = 11;
 static const uint8_t PIN_I2S_DOUT = 12; // Pico -> DIN on amp
 static const int8_t PIN_AMP_SD = 13;    // optional; set -1 if hardwired high
 
@@ -36,7 +37,7 @@ static const int8_t PIN_STATUS_LED = -1;
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
 static const uint16_t PLAY_INTERVAL_MS = 115;
-static const uint16_t MAX_PLAY_MS = 180; // per trigger snippet length
+
 static const float DEADZONE = 0.01f;
 static const float SPREAD_AT_CENTER = 180.0f;
 static const float SPREAD_AT_EDGE = 15.0f;
@@ -69,6 +70,7 @@ struct AssetEntry {
 AssetEntry assets[MAX_ASSETS];
 int assetCount = 0;
 int rawFilesOnCard = 0;
+int wavFilesOnCard = 0;
 int groupCounts[GROUP_COUNT] = {0};
 
 int centerX = 2048;
@@ -76,7 +78,25 @@ int centerY = 2048;
 unsigned long lastPlayMs = 0;
 int lastPlayedIndex = -1;
 
-I2S i2s(OUTPUT);
+// Audio configurations (Ensure all your WAV files match these settings)
+const uint32_t SAMPLE_RATE = I2S_SAMPLE_RATE;
+const uint8_t CHANNELS = 1;         // Mono saves considerable RAM/processing on Pico
+const uint8_t BITS_PER_SAMPLE = 16;
+
+#define MAX_VOICES 1 // Stable WAV playback path (single voice)
+
+// Core Physical Audio Output
+I2SStream out;
+
+// Structure representing a single polyphonic voice channel
+struct AudioVoice {
+  WAVDecoder decoder;
+  EncodedAudioStream* encodedStream = nullptr;
+  AudioPlayer* player = nullptr;
+  bool isPlaying = false;
+};
+
+AudioVoice voices[MAX_VOICES];
 bool soundReady = false;
 
 static const uint16_t STATUS_SHORT_MS = 95;
@@ -84,24 +104,24 @@ static const uint16_t STATUS_LONG_MS = 300;
 static const uint16_t STATUS_GAP_MS = 95;
 
 static void playStatusChirp(uint16_t freqHz, uint16_t durationMs, float amplitude = 0.16f) {
-  if (!soundReady || freqHz == 0) {
-    delay(durationMs);
-    return;
-  }
+  // if (!soundReady || freqHz == 0) {
+  //   delay(durationMs);
+  //   return;
+  // }
 
-  const uint32_t totalSamples = (uint32_t)((I2S_SAMPLE_RATE * durationMs) / 1000UL);
-  const float phaseStep = (2.0f * PI * (float)freqHz) / (float)I2S_SAMPLE_RATE;
-  float phase = 0.0f;
+  // const uint32_t totalSamples = (uint32_t)((I2S_SAMPLE_RATE * durationMs) / 1000UL);
+  // const float phaseStep = (2.0f * PI * (float)freqHz) / (float)I2S_SAMPLE_RATE;
+  // float phase = 0.0f;
 
-  for (uint32_t i = 0; i < totalSamples; i++) {
-    int16_t s = (int16_t)(sinf(phase) * 32767.0f * amplitude);
-    i2s.write16(s, s);
-    phase += phaseStep;
-    if (phase > 2.0f * PI) {
-      phase -= 2.0f * PI;
-    }
-  }
-  i2s.flush();
+  // for (uint32_t i = 0; i < totalSamples; i++) {
+  //   int16_t s = (int16_t)(sinf(phase) * 32767.0f * amplitude);
+  //   i2s.write16(s, s);
+  //   phase += phaseStep;
+  //   if (phase > 2.0f * PI) {
+  //     phase -= 2.0f * PI;
+  //   }
+  // }
+  // i2s.flush();
 }
 
 static void runStatusStep(uint16_t onMs, uint16_t offMs, uint16_t chirpFreqHz) {
@@ -165,6 +185,15 @@ static bool hasRawExtension(const char* name) {
           tolower(name[n - 1]) == 'w');
 }
 
+static bool hasWavExtension(const char* name) {
+  size_t n = strlen(name);
+  if (n < 4) return false;
+  return (tolower(name[n - 4]) == '.' &&
+          tolower(name[n - 3]) == 'w' &&
+          tolower(name[n - 2]) == 'a' &&
+          tolower(name[n - 1]) == 'v');
+}
+
 static bool containsToken(const char* haystack, const char* needle) {
   return strstr(haystack, needle) != nullptr;
 }
@@ -226,6 +255,7 @@ static void calibrateJoystickCenter() {
 static bool scanAssets() {
   assetCount = 0;
   rawFilesOnCard = 0;
+  wavFilesOnCard = 0;
   for (int i = 0; i < GROUP_COUNT; i++) groupCounts[i] = 0;
 
   File root = SD.open("/");
@@ -244,12 +274,21 @@ static bool scanAssets() {
     }
 
     const char* n = entry.name();
-    if (!n || !hasRawExtension(n)) {
+    if (!n) {
       entry.close();
       continue;
     }
 
-    rawFilesOnCard++;
+    if (hasRawExtension(n)) {
+      rawFilesOnCard++;
+    }
+
+    if (!hasWavExtension(n)) {
+      entry.close();
+      continue;
+    }
+
+    wavFilesOnCard++;
 
     if (assetCount >= MAX_ASSETS) {
       entry.close();
@@ -352,79 +391,38 @@ static int pickTransferAssetIndex(int avoidIndex) {
   return transfer;
 }
 
-static void drainI2SForSilence(uint32_t ms) {
-  uint32_t totalSamples = (I2S_SAMPLE_RATE * ms) / 1000UL;
-  for (uint32_t i = 0; i < totalSamples; i++) {
-    i2s.write16(0, 0);
-  }
+// Callback executed automatically when a sound finishes playing
+void onSoundEOF(void* arg) {
+  AudioVoice* voice = (AudioVoice*)arg;
+  voice->isPlaying = false;
+  // Serial.println("A voice channel freed up.");
 }
 
 static bool playRawSnippetMixed(const char* primaryFilename,
                                 const char* transferFilename,
-                                uint16_t maxMs,
                                 float materialGain,
                                 float transferGain) {
-  File material = SD.open(primaryFilename, FILE_READ);
-  if (!material) {
-    Serial.print("open failed: ");
-    Serial.println(primaryFilename);
-    return false;
+  (void)transferFilename;
+  (void)transferGain;
+
+  // Find an available (idle) voice slot
+  for (int i = 0; i < MAX_VOICES; i++) {
+    if (!voices[i].isPlaying) {
+      Serial.print("Triggering "); Serial.print(primaryFilename); 
+      Serial.print(" on channel: "); Serial.println(i);
+      
+      // AudioPlayer safely accepts raw SD paths or open files depending on setup source
+      // Here we pass the direct path string
+      voices[i].isPlaying = true;
+      voices[i].player->setVolume(materialGain);
+      voices[i].player->setPath(primaryFilename);
+      voices[i].player->play();
+      return true;
+    }
   }
 
-  File transfer;
-  bool hasTransfer = false;
-  if (transferFilename && transferFilename[0] != '\0') {
-    transfer = SD.open(transferFilename, FILE_READ);
-    hasTransfer = (bool)transfer;
-  }
-
-  const uint32_t maxBytes = (uint32_t)maxMs * (I2S_SAMPLE_RATE * 2UL) / 1000UL;
-  // Mono 16-bit input => 2 bytes/sample.
-  uint32_t playedBytes = 0;
-
-  static uint8_t materialBuf[512];
-  static uint8_t transferBuf[512];
-  while (material.available() && playedBytes < maxBytes) {
-    int toRead = sizeof(materialBuf);
-    if (maxBytes - playedBytes < (uint32_t)toRead) {
-      toRead = (int)(maxBytes - playedBytes);
-    }
-
-    int nMat = material.read(materialBuf, toRead);
-    if (nMat <= 0) break;
-
-    int nTr = 0;
-    if (hasTransfer) {
-      nTr = transfer.read(transferBuf, toRead);
-      if (nTr < 0) nTr = 0;
-    }
-
-    // Ensure even count for 16-bit sample reads.
-    if (nMat & 1) nMat--;
-    if (nTr & 1) nTr--;
-
-    for (int i = 0; i < nMat; i += 2) {
-      int16_t sMat = (int16_t)((uint16_t)materialBuf[i] | ((uint16_t)materialBuf[i + 1] << 8));
-      int16_t sTr = 0;
-      if (hasTransfer && i < nTr) {
-        sTr = (int16_t)((uint16_t)transferBuf[i] | ((uint16_t)transferBuf[i + 1] << 8));
-      }
-
-      float mixed = (float)sMat * materialGain + (float)sTr * transferGain;
-      if (mixed > 32767.0f) mixed = 32767.0f;
-      if (mixed < -32768.0f) mixed = -32768.0f;
-
-      int16_t out = (int16_t)mixed;
-      i2s.write16(out, out); // duplicate mono into L/R
-    }
-
-    playedBytes += (uint32_t)nMat;
-  }
-
-  material.close();
-  if (hasTransfer) transfer.close();
-  i2s.flush();
-  return true;
+  Serial.println("No available channels! Trigger ignored.");
+  return false;
 }
 
 static void printHelp() {
@@ -439,10 +437,12 @@ static void printHelp() {
 static void printStatus() {
   Serial.print("assetsIndexed=");
   Serial.print(assetCount);
+  Serial.print(" wavOnCard=");
+  Serial.print(wavFilesOnCard);
   Serial.print(" rawOnCard=");
   Serial.print(rawFilesOnCard);
   Serial.print(" dropped=");
-  Serial.print(rawFilesOnCard - assetCount);
+  Serial.print(wavFilesOnCard - assetCount);
   Serial.print(" centerX=");
   Serial.print(centerX);
   Serial.print(" centerY=");
@@ -470,18 +470,37 @@ void setup() {
     digitalWrite(PIN_AMP_SD, HIGH);
   }
 
-  if (!i2s.setBCLK(PIN_I2S_BCLK) || !i2s.setDATA(PIN_I2S_DOUT) ||
-      !i2s.setBitsPerSample(16) || !i2s.begin(I2S_SAMPLE_RATE)) {
-    Serial.println("ERROR: I2S init failed");
+  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
+  AudioInfo info(SAMPLE_RATE, CHANNELS, BITS_PER_SAMPLE);
+
+  // Configure physical I2S output
+  auto config_out = out.defaultConfig(TX_MODE);
+  config_out.copyFrom(info);
+  config_out.pin_bck = PIN_I2S_BCLK;
+  config_out.pin_ws = PIN_I2S_LRCLK;
+  config_out.pin_data = PIN_I2S_DOUT;
+  if (!out.begin(config_out)) {
+    Serial.println("ERROR: AudioTools I2S output init failed");
     while (true) {
       signalSoundChipFailedOnce();
       delay(450);
     }
   }
+
+  // Initialize the Voice Channels
+  for (int i = 0; i < MAX_VOICES; i++) {
+    voices[i].encodedStream = new EncodedAudioStream(out, &voices[i].decoder);
+    voices[i].encodedStream->begin(info);
+
+    voices[i].player = new AudioPlayer(SD, *voices[i].encodedStream);
+    voices[i].player->setVolume(1.0);
+    voices[i].player->setOnEOF(onSoundEOF, &voices[i]); // callback registration
+    voices[i].player->begin();
+  }  
   soundReady = true;
 
   // Optional soft start silence to avoid boot pops.
-  drainI2SForSilence(50);
+  // drainI2SForSilence(50);
 
   SPI.setRX(PIN_SD_MISO);
   SPI.setTX(PIN_SD_MOSI);
@@ -503,9 +522,9 @@ void setup() {
   } else {
     signalSdScanComplete();
   }
-  if (rawFilesOnCard > assetCount) {
-    Serial.print("WARN: asset cap reached. Increase MAX_ASSETS to index all files. dropped=");
-    Serial.println(rawFilesOnCard - assetCount);
+  if (wavFilesOnCard > assetCount) {
+    Serial.print("WARN: asset cap reached. Increase MAX_ASSETS to index all WAV files. dropped=");
+    Serial.println(wavFilesOnCard - assetCount);
   }
 
   calibrateJoystickCenter();
@@ -519,11 +538,19 @@ void setup() {
   if (assetCount > 0) {
     int transferIdx = pickTransferAssetIndex(0);
     const char* transferName = (transferIdx >= 0 && transferIdx != 0) ? assets[transferIdx].name : nullptr;
-    playRawSnippetMixed(assets[0].name, transferName, 120, 0.95f, 0.25f);
+    playRawSnippetMixed(assets[0].name, transferName, 0.95f, 0.25f);
   }
 }
 
 void loop() {
+  // Pump any playing audio
+  for (int i = 0; i < MAX_VOICES; i++) {
+    if (voices[i].isPlaying) {
+      voices[i].player->copy();
+    }
+  }
+
+  // User input
   while (Serial.available()) {
     char c = (char)Serial.read();
     if (c == 'h' || c == 'H') {
@@ -535,22 +562,23 @@ void loop() {
     } else if (c == 'r' || c == 'R') {
       bool ok = scanAssets();
       Serial.println(ok ? "rescan ok" : "rescan failed");
-      if (ok && rawFilesOnCard > assetCount) {
+      if (ok && wavFilesOnCard > assetCount) {
         Serial.print("WARN: asset cap reached. dropped=");
-        Serial.println(rawFilesOnCard - assetCount);
+        Serial.println(wavFilesOnCard - assetCount);
       }
       printStatus();
     } else if (c == 'p' || c == 'P') {
       if (assetCount > 0) {
         int transferIdx = pickTransferAssetIndex(0);
         const char* transferName = (transferIdx >= 0 && transferIdx != 0) ? assets[transferIdx].name : nullptr;
-        playRawSnippetMixed(assets[0].name, transferName, 120, 0.95f, 0.25f);
+        playRawSnippetMixed(assets[0].name, transferName, 0.95f, 0.25f);
       }
     } else if (c == 's' || c == 'S') {
       printStatus();
     }
   }
 
+  // Read inputs
   int xRaw = analogRead(PIN_JOY_X);
   int yRaw = analogRead(PIN_JOY_Y);
   bool triggerPressed = (digitalRead(PIN_JOY_SW) == LOW);
@@ -563,6 +591,7 @@ void loop() {
   float spread = SPREAD_AT_CENTER - clampf(amp, 0.0f, 1.0f) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE);
 
   unsigned long now = millis();
+
   if (triggerPressed && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
     int chosenGroup = pickGroupForAngle(angleDeg, spread);
     int idx = -1;
@@ -589,7 +618,7 @@ void loop() {
       Serial.print(" target=");
       Serial.println(assets[idx].angle, 1);
 
-      playRawSnippetMixed(assets[idx].name, transferName, MAX_PLAY_MS, materialGain, transferGain);
+      playRawSnippetMixed(assets[idx].name, transferName, materialGain, transferGain);
       lastPlayedIndex = idx;
       lastPlayMs = now;
     }

@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Open a serial monitor for firmware output without using PlatformIO monitor.
-# This helper is board-agnostic; it auto-picks an available USB serial port.
+# Open a serial monitor for Pico firmware output with PlatformIO.
 #
 # Usage:
-#   ./scripts/monitor.sh [env]
-#   ./scripts/monitor.sh [env] [seconds]
+#   ./scripts/monitor.sh [seconds]
 #
 # Examples:
 #   ./scripts/monitor.sh                         # interactive monitor (Ctrl+C)
-#   ./scripts/monitor.sh pico_sd_diag 5          # quick 5s smoke test
+#   ./scripts/monitor.sh 5                       # quick 5s smoke test
 #
 # In quick-test mode (seconds provided), the script exits after the duration and
 # returns:
@@ -19,57 +17,25 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-source .venv/bin/activate 2>/dev/null || true
-
-ENV="${1:-serial}"
-SECONDS_LIMIT="${2:-}"
-
-detect_port() {
-	local patterns=(
-		"/dev/cu.usbmodem*"
-		"/dev/tty.usbmodem*"
-		"/dev/cu.usbserial*"
-		"/dev/tty.usbserial*"
-		"/dev/cu.SLAB_USBtoUART*"
-		"/dev/tty.SLAB_USBtoUART*"
-	)
-
-	for pattern in "${patterns[@]}"; do
-		for p in $pattern; do
-			if [[ -e "$p" ]]; then
-				echo "$p"
-				return 0
-			fi
-		done
-	done
-
-	echo ""
-}
+SECONDS_LIMIT="${1:-}"
 
 if [[ -n "$SECONDS_LIMIT" ]] && ! [[ "$SECONDS_LIMIT" =~ ^[0-9]+$ ]]; then
 	echo "Error: seconds must be an integer, got '$SECONDS_LIMIT'"
 	exit 2
 fi
 
-echo "Opening serial monitor for environment: $ENV"
-
-if ! command -v python3 >/dev/null 2>&1; then
-	echo "Error: python3 not found"
+if ! command -v pio >/dev/null 2>&1; then
+	echo "Error: pio not found in PATH"
 	exit 1
 fi
 
-PORT="$(detect_port)"
-if [[ -z "$PORT" ]]; then
-	echo "Error: no serial device found (usbmodem/usbserial)."
-	exit 1
-fi
-
-echo "Using serial port: $PORT"
+PORT="$(./scripts/find_pico_port.sh)"
+echo "Opening monitor on: $PORT"
 
 if [[ -z "$SECONDS_LIMIT" ]]; then
 	echo "Press Ctrl+C to exit."
 	echo ""
-	python3 -m serial.tools.miniterm "$PORT" 115200
+	pio device monitor --port "$PORT" --baud 115200
 	exit 0
 fi
 
@@ -83,7 +49,7 @@ cleanup() {
 trap cleanup EXIT
 
 set +e
-python3 -m serial.tools.miniterm "$PORT" 115200 >"$LOG_FILE" 2>&1 &
+pio device monitor --port "$PORT" --baud 115200 >"$LOG_FILE" 2>&1 &
 MON_PID=$!
 set -e
 

@@ -5,8 +5,25 @@ This guide covers repeatable local validation loops for Pico development.
 ## 1) Environment Check
 
 - Connect Pico over USB
+- Confirm PlatformIO CLI works (`pio --version`)
 - Confirm Arduino IDE board package for Earle Philhower RP2040 is installed
 - Confirm serial monitor baud rate is 115200
+
+### PlatformIO loop (recommended)
+
+From repo root:
+
+```bash
+pio run -e pico_lootr_integration
+pio run -e pico_lootr_integration --target upload
+./scripts/monitor.sh
+```
+
+If you want to see all matching modem ports:
+
+```bash
+./scripts/find_pico_port.sh --all
+```
 
 ## 2) SD Reader Validation
 

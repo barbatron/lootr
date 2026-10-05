@@ -30,6 +30,34 @@ Integrated SD + joystick + MAX98357A playback sketch:
 
 This is the canonical hardware bring-up path.
 
+## VSCode + PlatformIO Workflow (Primary Dev Loop)
+
+PlatformIO is configured for the integration sketch in
+`raspberry_pi_pico_lootr_integration/`.
+
+Typical loop:
+
+```bash
+pio run -e pico_lootr_integration
+pio run -e pico_lootr_integration --target upload
+./scripts/monitor.sh
+```
+
+Port helper:
+
+```bash
+./scripts/find_pico_port.sh
+```
+
+Why your serial port changes (`cu.usbmodem103*` vs `cu.usbmodem104*`):
+
+- macOS assigns those device suffixes dynamically.
+- The value can change across reconnects, resets, and BOOTSEL transitions.
+- It is not a stable indicator of which physical USB-C socket you used.
+
+The PlatformIO config uses wildcard monitor-port matching to reduce manual
+port re-selection.
+
 ### Pico Wiring (SD Reader)
 
 Use GPIO labels (not just physical position descriptions):

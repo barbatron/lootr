@@ -38,9 +38,9 @@ static const int8_t PIN_STATUS_LED = -1;
 
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
-static const uint16_t PLAY_INTERVAL_MS = 200;
+static const uint16_t PLAY_INTERVAL_MS = 260;
 
-static const float DEADZONE = 0.01f;
+static const float DEADZONE = 0.06f;
 static const float SPREAD_AT_CENTER = 180.0f;
 static const float SPREAD_AT_EDGE = 15.0f;
 
@@ -79,6 +79,7 @@ int centerX = 2048;
 int centerY = 2048;
 unsigned long lastPlayMs = 0;
 int lastPlayedIndex = -1;
+bool lastTriggerPressed = false;
 
 // Audio configurations (Ensure all your WAV files match these settings)
 const uint32_t SAMPLE_RATE = I2S_SAMPLE_RATE;
@@ -91,10 +92,26 @@ const uint8_t BITS_PER_SAMPLE = 16;
 I2SStream out;                                // Final physical output
 OutputMixer<int16_t> mixer(out, MAX_VOICES);  // Mixer feeding I2S, one slot per voice
 
+struct MixerChannelOutput : public Print {
+  int channel = 0;
+  explicit MixerChannelOutput(int c) : channel(c) {}
+
+  size_t write(uint8_t) override { return 0; }
+
+  size_t write(const uint8_t* buffer, size_t size) override {
+    return mixer.write(channel, buffer, size);
+  }
+
+  int availableForWrite() override {
+    return mixer.availableForWrite(channel);
+  }
+};
+
 // Structure representing a single polyphonic voice channel
 struct AudioVoice {
   WAVDecoder decoder;
   AudioSourceSD* source = nullptr;
+  MixerChannelOutput* output = nullptr;
   AudioPlayer* player = nullptr;
   bool isPlaying = false;
 };
@@ -473,7 +490,7 @@ void setup() {
     digitalWrite(PIN_AMP_SD, HIGH);
   }
 
-  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
+  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Warning);
   AudioInfo info(SAMPLE_RATE, CHANNELS, BITS_PER_SAMPLE);
 
   // Configure physical I2S output
@@ -489,13 +506,17 @@ void setup() {
       delay(450);
     }
   }
-  mixer.begin(1024);
+  mixer.setAutoIndex(false);
+  mixer.begin(4096);
 
   // Initialize the Voice Channels
   for (int i = 0; i < MAX_VOICES; i++) {
     voices[i].source = new AudioSourceSD("/", ".wav", PIN_SD_CS);
     voices[i].source->setAutoNext(false);
-    voices[i].player = new AudioPlayer(*voices[i].source, (Print&)mixer, voices[i].decoder);
+    voices[i].output = new MixerChannelOutput(i);
+    voices[i].player = new AudioPlayer(*voices[i].source, (Print&)(*voices[i].output), voices[i].decoder);
+    voices[i].player->setAutoNext(false);
+    voices[i].player->setBufferSize(256);
     voices[i].player->setVolume(1.0);
   }  
   soundReady = true;
@@ -545,13 +566,28 @@ void setup() {
 
 void loop() {
   // Pump any playing audio
+  size_t producedBytes[MAX_VOICES] = {0};
+  size_t maxProducedBytes = 0;
   for (int i = 0; i < MAX_VOICES; i++) {
     if (voices[i].isPlaying) {
       size_t bytesRead = voices[i].player->copy();
+      producedBytes[i] = bytesRead;
+      if (bytesRead > maxProducedBytes) {
+        maxProducedBytes = bytesRead;
+      }
       if (bytesRead == 0 && !voices[i].player->isActive()) {
         voices[i].isPlaying = false;
       }
     }
+  }
+
+  if (maxProducedBytes > 0) {
+    for (int i = 0; i < MAX_VOICES; i++) {
+      if (producedBytes[i] < maxProducedBytes) {
+        mixer.writeSilence(i, maxProducedBytes - producedBytes[i]);
+      }
+    }
+    mixer.flushMixer();
   }
 
   // User input
@@ -572,11 +608,7 @@ void loop() {
       }
       printStatus();
     } else if (c == 'p' || c == 'P') {
-      if (assetCount > 0) {
-        int transferIdx = pickTransferAssetIndex(0);
-        const char* transferName = (transferIdx >= 0 && transferIdx != 0) ? assets[transferIdx].name : nullptr;
-        playRawSnippetMixed(assets[0].name, transferName, 0.95f, 0.25f);
-      }
+      playStatusChirp(1175, 120, 0.18f);
     } else if (c == 's' || c == 'S') {
       printStatus();
     }
@@ -595,8 +627,9 @@ void loop() {
   float spread = SPREAD_AT_CENTER - clampf(amp, 0.0f, 1.0f) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE);
 
   unsigned long now = millis();
+  bool triggerEvent = triggerPressed && !lastTriggerPressed;
 
-  if (triggerPressed && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
+  if (triggerEvent && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
     int chosenGroup = pickGroupForAngle(angleDeg, spread);
     int idx = -1;
     if (chosenGroup >= 0) {
@@ -627,4 +660,6 @@ void loop() {
       lastPlayMs = now;
     }
   }
+
+  lastTriggerPressed = triggerPressed;
 }

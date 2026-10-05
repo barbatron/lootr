@@ -43,7 +43,8 @@ echo "PASS: platformio.ini parses successfully"
 
 echo ""
 echo "-- Checking env exists --"
-if "$PIO_BIN" project config | rg -q "env:pico_lootr_integration"; then
+PROJECT_CONFIG="$("$PIO_BIN" project config)"
+if printf '%s\n' "$PROJECT_CONFIG" | grep -Fq "env:pico_lootr_integration"; then
   echo "PASS: env:pico_lootr_integration found"
 else
   echo "FAIL: env:pico_lootr_integration not found in project config" >&2

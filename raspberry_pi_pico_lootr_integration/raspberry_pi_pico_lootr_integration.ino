@@ -83,15 +83,17 @@ const uint32_t SAMPLE_RATE = I2S_SAMPLE_RATE;
 const uint8_t CHANNELS = 1;         // Mono saves considerable RAM/processing on Pico
 const uint8_t BITS_PER_SAMPLE = 16;
 
-#define MAX_VOICES 1 // Stable WAV playback path (single voice)
+#define MAX_VOICES 3 // Maximum overlapping sounds allowed
 
 // Core Physical Audio Output
-I2SStream out;
+I2SStream out;                                // Final physical output
+OutputMixer<int16_t> mixer(out, MAX_VOICES);  // Mixer feeding I2S, one slot per voice
 
 // Structure representing a single polyphonic voice channel
 struct AudioVoice {
   WAVDecoder decoder;
   EncodedAudioStream* encodedStream = nullptr;
+  BufferedStream* bufferedStream = nullptr;
   AudioPlayer* player = nullptr;
   bool isPlaying = false;
 };
@@ -486,10 +488,14 @@ void setup() {
       delay(450);
     }
   }
+  mixer.begin(info);
 
   // Initialize the Voice Channels
   for (int i = 0; i < MAX_VOICES; i++) {
-    voices[i].encodedStream = new EncodedAudioStream(out, &voices[i].decoder);
+    voices[i].bufferedStream = new BufferedStream(1024);
+    voices[i].bufferedStream->begin(info);
+
+    voices[i].encodedStream = new EncodedAudioStream(*voices[i].bufferedStream, &voices[i].decoder);
     voices[i].encodedStream->begin(info);
 
     voices[i].player = new AudioPlayer(SD, *voices[i].encodedStream);
@@ -546,7 +552,14 @@ void loop() {
   // Pump any playing audio
   for (int i = 0; i < MAX_VOICES; i++) {
     if (voices[i].isPlaying) {
-      voices[i].player->copy();
+      size_t bytesRead = voices[i].player->copy();
+      if (bytesRead > 0) {
+        uint8_t buffer[256];
+        int bufferedBytes = voices[i].bufferedStream->read(buffer, sizeof(buffer));
+        if (bufferedBytes > 0) {
+          mixer.write(i, buffer, bufferedBytes);
+        }
+      }
     }
   }
 

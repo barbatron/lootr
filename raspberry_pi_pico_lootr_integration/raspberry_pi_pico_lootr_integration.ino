@@ -5,6 +5,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "AudioTools.h"
+#include "AudioTools/Disk/AudioSourceSD.h"
 
 // ---------------------------------------------------------------------------
 // Pico Lootr Integration Diagnostics
@@ -92,8 +93,7 @@ OutputMixer<int16_t> mixer(out, MAX_VOICES);  // Mixer feeding I2S, one slot per
 // Structure representing a single polyphonic voice channel
 struct AudioVoice {
   WAVDecoder decoder;
-  EncodedAudioStream* encodedStream = nullptr;
-  BufferedStream* bufferedStream = nullptr;
+  AudioSourceSD* source = nullptr;
   AudioPlayer* player = nullptr;
   bool isPlaying = false;
 };
@@ -398,13 +398,6 @@ static int pickTransferAssetIndex(int avoidIndex) {
   return transfer;
 }
 
-// Callback executed automatically when a sound finishes playing
-void onSoundEOF(void* arg) {
-  AudioVoice* voice = (AudioVoice*)arg;
-  voice->isPlaying = false;
-  // Serial.println("A voice channel freed up.");
-}
-
 static bool playRawSnippetMixed(const char* primaryFilename,
                                 const char* transferFilename,
                                 float materialGain,
@@ -418,11 +411,13 @@ static bool playRawSnippetMixed(const char* primaryFilename,
       Serial.print("Triggering "); Serial.print(primaryFilename); 
       Serial.print(" on channel: "); Serial.println(i);
       
-      // AudioPlayer safely accepts raw SD paths or open files depending on setup source
-      // Here we pass the direct path string
-      voices[i].isPlaying = true;
       voices[i].player->setVolume(materialGain);
-      voices[i].player->setPath(primaryFilename);
+      if (!voices[i].player->setPath(primaryFilename)) {
+        Serial.print("ERROR: Failed to open WAV: ");
+        Serial.println(primaryFilename);
+        continue;
+      }
+      voices[i].isPlaying = true;
       voices[i].player->play();
       return true;
     }
@@ -493,20 +488,14 @@ void setup() {
       delay(450);
     }
   }
-  mixer.begin(info);
+  mixer.begin(1024);
 
   // Initialize the Voice Channels
   for (int i = 0; i < MAX_VOICES; i++) {
-    voices[i].bufferedStream = new BufferedStream(1024);
-    voices[i].bufferedStream->begin(info);
-
-    voices[i].encodedStream = new EncodedAudioStream(*voices[i].bufferedStream, &voices[i].decoder);
-    voices[i].encodedStream->begin(info);
-
-    voices[i].player = new AudioPlayer(SD, *voices[i].encodedStream);
+    voices[i].source = new AudioSourceSD("/", ".wav", PIN_SD_CS);
+    voices[i].source->setAutoNext(false);
+    voices[i].player = new AudioPlayer(*voices[i].source, (Print&)mixer, voices[i].decoder);
     voices[i].player->setVolume(1.0);
-    voices[i].player->setOnEOF(onSoundEOF, &voices[i]); // callback registration
-    voices[i].player->begin();
   }  
   soundReady = true;
 
@@ -558,12 +547,8 @@ void loop() {
   for (int i = 0; i < MAX_VOICES; i++) {
     if (voices[i].isPlaying) {
       size_t bytesRead = voices[i].player->copy();
-      if (bytesRead > 0) {
-        uint8_t buffer[256];
-        int bufferedBytes = voices[i].bufferedStream->read(buffer, sizeof(buffer));
-        if (bufferedBytes > 0) {
-          mixer.write(i, buffer, bufferedBytes);
-        }
+      if (bytesRead == 0 && !voices[i].player->isActive()) {
+        voices[i].isPlaying = false;
       }
     }
   }

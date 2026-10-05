@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
+#include <I2S.h>
 #include <math.h>
 #include <string.h>
 #include <ctype.h>

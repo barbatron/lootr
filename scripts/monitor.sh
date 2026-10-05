@@ -24,8 +24,20 @@ if [[ -n "$SECONDS_LIMIT" ]] && ! [[ "$SECONDS_LIMIT" =~ ^[0-9]+$ ]]; then
 	exit 2
 fi
 
-if ! command -v pio >/dev/null 2>&1; then
-	echo "Error: pio not found in PATH"
+find_pio() {
+	if command -v pio >/dev/null 2>&1; then
+		command -v pio
+		return 0
+	fi
+	if [[ -x "$HOME/.platformio/penv/bin/pio" ]]; then
+		echo "$HOME/.platformio/penv/bin/pio"
+		return 0
+	fi
+	return 1
+}
+
+if ! PIO_BIN="$(find_pio)"; then
+	echo "Error: PlatformIO CLI not found (tried PATH and ~/.platformio/penv/bin/pio)."
 	exit 1
 fi
 
@@ -35,7 +47,7 @@ echo "Opening monitor on: $PORT"
 if [[ -z "$SECONDS_LIMIT" ]]; then
 	echo "Press Ctrl+C to exit."
 	echo ""
-	pio device monitor --port "$PORT" --baud 115200
+	"$PIO_BIN" device monitor --port "$PORT" --baud 115200
 	exit 0
 fi
 
@@ -49,7 +61,7 @@ cleanup() {
 trap cleanup EXIT
 
 set +e
-pio device monitor --port "$PORT" --baud 115200 >"$LOG_FILE" 2>&1 &
+"$PIO_BIN" device monitor --port "$PORT" --baud 115200 >"$LOG_FILE" 2>&1 &
 MON_PID=$!
 set -e
 

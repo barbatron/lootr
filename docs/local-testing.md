@@ -19,6 +19,12 @@ pio run -e pico_lootr_integration --target upload
 ./scripts/monitor.sh
 ```
 
+Project sanity check helper:
+
+```bash
+./scripts/pio_doctor.sh
+```
+
 If you want to see all matching modem ports:
 
 ```bash

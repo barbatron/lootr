@@ -43,6 +43,13 @@ pio run -e pico_lootr_integration --target upload
 ./scripts/monitor.sh
 ```
 
+Quick diagnostics:
+
+```bash
+./scripts/pio_doctor.sh
+./scripts/pio_doctor.sh --build
+```
+
 Port helper:
 
 ```bash

@@ -79,14 +79,17 @@ int centerX = 2048;
 int centerY = 2048;
 unsigned long lastPlayMs = 0;
 int lastPlayedIndex = -1;
-bool lastTriggerPressed = false;
+uint32_t triggerAttempts = 0;
+uint32_t triggerStarted = 0;
+uint32_t triggerStolen = 0;
+uint32_t triggerDropped = 0;
 
 // Audio configurations (Ensure all your WAV files match these settings)
 const uint32_t SAMPLE_RATE = I2S_SAMPLE_RATE;
 const uint8_t CHANNELS = 1;         // Mono saves considerable RAM/processing on Pico
 const uint8_t BITS_PER_SAMPLE = 16;
 
-#define MAX_VOICES 3 // Maximum overlapping sounds allowed
+#define MAX_VOICES 4 // Maximum overlapping sounds allowed
 
 // Core Physical Audio Output
 I2SStream out;                                // Final physical output
@@ -114,6 +117,7 @@ struct AudioVoice {
   MixerChannelOutput* output = nullptr;
   AudioPlayer* player = nullptr;
   bool isPlaying = false;
+  uint32_t startedAtMs = 0;
 };
 
 AudioVoice voices[MAX_VOICES];
@@ -416,6 +420,14 @@ static int pickTransferAssetIndex(int avoidIndex) {
   return transfer;
 }
 
+static int activeVoiceCount() {
+  int count = 0;
+  for (int i = 0; i < MAX_VOICES; i++) {
+    if (voices[i].isPlaying) count++;
+  }
+  return count;
+}
+
 static bool playRawSnippetMixed(const char* primaryFilename,
                                 const char* transferFilename,
                                 float materialGain,
@@ -423,26 +435,62 @@ static bool playRawSnippetMixed(const char* primaryFilename,
   (void)transferFilename;
   (void)transferGain;
 
+  int target = -1;
+  bool stealing = false;
+
   // Find an available (idle) voice slot
   for (int i = 0; i < MAX_VOICES; i++) {
     if (!voices[i].isPlaying) {
-      Serial.print("Triggering "); Serial.print(primaryFilename); 
-      Serial.print(" on channel: "); Serial.println(i);
-      
-      voices[i].player->setVolume(materialGain);
-      if (!voices[i].player->setPath(primaryFilename)) {
-        Serial.print("ERROR: Failed to open WAV: ");
-        Serial.println(primaryFilename);
-        continue;
-      }
-      voices[i].isPlaying = true;
-      voices[i].player->play();
-      return true;
+      target = i;
+      break;
     }
   }
 
-  Serial.println("No available channels! Trigger ignored.");
-  return false;
+  if (target < 0) {
+    // Voice stealing: reuse the oldest currently playing channel.
+    uint32_t oldestStart = UINT32_MAX;
+    for (int i = 0; i < MAX_VOICES; i++) {
+      if (voices[i].isPlaying && voices[i].startedAtMs <= oldestStart) {
+        oldestStart = voices[i].startedAtMs;
+        target = i;
+      }
+    }
+    if (target >= 0) {
+      stealing = true;
+      voices[target].player->stop();
+      voices[target].player->clearBuffers(true);
+      voices[target].isPlaying = false;
+      voices[target].startedAtMs = 0;
+    }
+  }
+
+  if (target < 0) {
+    triggerDropped++;
+    Serial.println("No available channels and no steal candidate.");
+    return false;
+  }
+
+  if (stealing) {
+    Serial.print("Stealing channel "); Serial.print(target);
+    Serial.print(" for "); Serial.println(primaryFilename);
+    triggerStolen++;
+  } else {
+    Serial.print("Triggering "); Serial.print(primaryFilename); 
+    Serial.print(" on channel: "); Serial.println(target);
+  }
+
+  voices[target].player->setVolume(materialGain);
+  if (!voices[target].player->setPath(primaryFilename)) {
+    Serial.print("ERROR: Failed to open WAV: ");
+    Serial.println(primaryFilename);
+    triggerDropped++;
+    return false;
+  }
+  voices[target].isPlaying = true;
+  voices[target].startedAtMs = millis();
+  voices[target].player->play();
+  triggerStarted++;
+  return true;
 }
 
 static void printHelp() {
@@ -466,7 +514,17 @@ static void printStatus() {
   Serial.print(" centerX=");
   Serial.print(centerX);
   Serial.print(" centerY=");
-  Serial.println(centerY);
+  Serial.print(centerY);
+  Serial.print(" activeVoices=");
+  Serial.print(activeVoiceCount());
+  Serial.print(" trigAttempts=");
+  Serial.print(triggerAttempts);
+  Serial.print(" trigStarted=");
+  Serial.print(triggerStarted);
+  Serial.print(" trigStolen=");
+  Serial.print(triggerStolen);
+  Serial.print(" trigDropped=");
+  Serial.println(triggerDropped);
 }
 
 void setup() {
@@ -577,6 +635,7 @@ void loop() {
       }
       if (bytesRead == 0 && !voices[i].player->isActive()) {
         voices[i].isPlaying = false;
+        voices[i].startedAtMs = 0;
       }
     }
   }
@@ -627,9 +686,8 @@ void loop() {
   float spread = SPREAD_AT_CENTER - clampf(amp, 0.0f, 1.0f) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE);
 
   unsigned long now = millis();
-  bool triggerEvent = triggerPressed && !lastTriggerPressed;
-
-  if (triggerEvent && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
+  if (triggerPressed && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
+    triggerAttempts++;
     int chosenGroup = pickGroupForAngle(angleDeg, spread);
     int idx = -1;
     if (chosenGroup >= 0) {
@@ -655,11 +713,12 @@ void loop() {
       Serial.print(" target=");
       Serial.println(assets[idx].angle, 1);
 
-      playRawSnippetMixed(assets[idx].name, transferName, materialGain, transferGain);
-      lastPlayedIndex = idx;
-      lastPlayMs = now;
+      if (playRawSnippetMixed(assets[idx].name, transferName, materialGain, transferGain)) {
+        lastPlayedIndex = idx;
+        lastPlayMs = now;
+      }
+    } else {
+      triggerDropped++;
     }
   }
-
-  lastTriggerPressed = triggerPressed;
 }

@@ -180,7 +180,7 @@ Runtime serial commands at 115200:
 - `c` recalibrate joystick center
 - `r` rescan assets on SD
 - `s` print status
-- `p` play first asset test snippet
+- `p` play one short test chirp
 
 Behavior:
 
@@ -188,6 +188,26 @@ Behavior:
 - Joystick angle picks material category.
 - Joystick amplitude changes selection spread (center = broad/random, edge =
   tighter).
+
+### Offline asset preprocessing (silence trim + WAV/RAW export)
+
+To reduce runtime cost and avoid long leading/trailing silence, preprocess
+assets with ffmpeg:
+
+```bash
+./scripts/process_assets_ffmpeg.sh
+```
+
+This writes processed files to gitignored output folders:
+
+- `.generated/processed-assets/wav/` (trimmed WAV, mono s16, 44.1kHz)
+- `.generated/processed-assets/raw/` (trimmed RAW PCM s16le, mono, 44.1kHz)
+
+Optional lower-rate test output (useful for RP2040 headroom checks):
+
+```bash
+./scripts/process_assets_ffmpeg.sh --sample-rate 22050
+```
 
 Startup status signaling (on `LED_BUILTIN` if present, plus chirps when I2S
 audio is available):

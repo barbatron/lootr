@@ -442,7 +442,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-/assets_raw
 .pio
-assets_test_raw
+.generated/
 .DS_Store

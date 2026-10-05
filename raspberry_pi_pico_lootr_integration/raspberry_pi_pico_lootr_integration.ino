@@ -40,6 +40,7 @@ static const int8_t PIN_STATUS_LED = -1;
 static const long I2S_SAMPLE_RATE = 22050;
 static const uint16_t PLAY_INTERVAL_MS = 170;
 static const uint16_t TRIGGER_DEBOUNCE_MS = 20;
+static const uint16_t TRIGGER_HOLD_GRACE_MS = 120;
 
 static const float DEADZONE = 0.06f;
 static const float SPREAD_AT_CENTER = 180.0f;
@@ -80,6 +81,7 @@ int rawFilesOnCard = 0;
 int wavFilesOnCard = 0;
 int skippedBySampling = 0;
 int droppedByCap = 0;
+int invalidWavOnCard = 0;
 int groupCounts[GROUP_COUNT] = {0};
 int groupAssetCounts[GROUP_COUNT] = {0};
 int groupAssetIndices[GROUP_COUNT][MAX_ASSETS];
@@ -92,7 +94,9 @@ int lastPlayedIndex = -1;
 bool triggerRawPressed = false;
 bool triggerPressedStable = false;
 bool wasTriggerPressedStable = false;
+bool triggerPressedEffective = false;
 unsigned long triggerRawChangedMs = 0;
+unsigned long triggerLastStablePressedMs = 0;
 uint32_t triggerAttempts = 0;
 uint32_t triggerStarted = 0;
 uint32_t triggerStolen = 0;
@@ -251,6 +255,41 @@ static bool includeAssetBySampling(const char* name) {
   return unit < ASSET_SAMPLING_RATIO;
 }
 
+static uint32_t readLE32(const uint8_t* p) {
+  return (uint32_t)p[0] |
+         ((uint32_t)p[1] << 8) |
+         ((uint32_t)p[2] << 16) |
+         ((uint32_t)p[3] << 24);
+}
+
+static bool hasSupportedWavDataChunk(const char* path) {
+  File f = SD.open(path);
+  if (!f) return false;
+
+  static const size_t HEADER_SCAN_LIMIT = 2048;
+  uint8_t header[HEADER_SCAN_LIMIT];
+  size_t len = f.read(header, sizeof(header));
+  f.close();
+
+  if (len < 12) return false;
+  if (memcmp(header, "RIFF", 4) != 0 || memcmp(header + 8, "WAVE", 4) != 0) {
+    return false;
+  }
+
+  size_t pos = 12;
+  while (pos + 8 <= len) {
+    const uint8_t* chunk = header + pos;
+    uint32_t chunkSize = readLE32(chunk + 4);
+    if (memcmp(chunk, "data", 4) == 0) return true;
+
+    size_t step = 8u + (size_t)chunkSize + (chunkSize & 1u);
+    if (step == 0) break;
+    pos += step;
+  }
+
+  return false;
+}
+
 static bool hasRawExtension(const char* name) {
   size_t n = strlen(name);
   if (n < 4) return false;
@@ -333,6 +372,7 @@ static bool scanAssets() {
   wavFilesOnCard = 0;
   skippedBySampling = 0;
   droppedByCap = 0;
+  invalidWavOnCard = 0;
   for (int i = 0; i < GROUP_COUNT; i++) {
     groupCounts[i] = 0;
     groupAssetCounts[i] = 0;
@@ -377,6 +417,12 @@ static bool scanAssets() {
 
     if (assetCount >= MAX_ASSETS) {
       droppedByCap++;
+      entry.close();
+      continue;
+    }
+
+    if (!hasSupportedWavDataChunk(n)) {
+      invalidWavOnCard++;
       entry.close();
       continue;
     }
@@ -606,8 +652,10 @@ static void printStatus() {
   Serial.print(skippedBySampling);
   Serial.print(" cappedOut=");
   Serial.print(droppedByCap);
+  Serial.print(" invalidWav=");
+  Serial.print(invalidWavOnCard);
   Serial.print(" dropped=");
-  Serial.print(skippedBySampling + droppedByCap);
+  Serial.print(skippedBySampling + droppedByCap + invalidWavOnCard);
   Serial.print(" centerX=");
   Serial.print(centerX);
   Serial.print(" centerY=");
@@ -647,7 +695,9 @@ static void printStatus() {
   Serial.print(" trigRaw=");
   Serial.print(triggerRawPressed ? "on" : "off");
   Serial.print(" trigStable=");
-  Serial.println(triggerPressedStable ? "on" : "off");
+  Serial.print(triggerPressedStable ? "on" : "off");
+  Serial.print(" trigEff=");
+  Serial.println(triggerPressedEffective ? "on" : "off");
 }
 
 void setup() {
@@ -664,7 +714,9 @@ void setup() {
   triggerRawPressed = (digitalRead(PIN_JOY_SW) == LOW);
   triggerPressedStable = triggerRawPressed;
   wasTriggerPressedStable = triggerPressedStable;
+  triggerPressedEffective = triggerPressedStable;
   triggerRawChangedMs = millis();
+  triggerLastStablePressedMs = millis();
   if (PIN_STATUS_LED >= 0) {
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
@@ -734,6 +786,10 @@ void setup() {
   if (droppedByCap > 0) {
     Serial.print("WARN: asset cap reached. Increase MAX_ASSETS to index all WAV files. dropped=");
     Serial.println(droppedByCap);
+  }
+  if (invalidWavOnCard > 0) {
+    Serial.print("WARN: skipped unsupported WAV headers=");
+    Serial.println(invalidWavOnCard);
   }
   if (assetCount == 0 && wavFilesOnCard > 0) {
     Serial.println("WARN: no WAV assets selected. Increase ASSET_SAMPLING.");
@@ -808,6 +864,10 @@ void loop() {
         Serial.print("WARN: asset cap reached. dropped=");
         Serial.println(droppedByCap);
       }
+      if (ok && invalidWavOnCard > 0) {
+        Serial.print("WARN: skipped unsupported WAV headers=");
+        Serial.println(invalidWavOnCard);
+      }
       if (ok && assetCount == 0 && wavFilesOnCard > 0) {
         Serial.println("WARN: no WAV assets selected. Increase ASSET_SAMPLING.");
       }
@@ -834,6 +894,7 @@ void loop() {
   }
 
   // Read inputs
+  unsigned long now = millis();
   int xRaw = analogRead(PIN_JOY_X);
   int yRaw = analogRead(PIN_JOY_Y);
   bool triggerPressedNow = (digitalRead(PIN_JOY_SW) == LOW);
@@ -844,6 +905,12 @@ void loop() {
   if ((millis() - triggerRawChangedMs) >= TRIGGER_DEBOUNCE_MS) {
     triggerPressedStable = triggerRawPressed;
   }
+  if (triggerPressedStable) {
+    triggerLastStablePressedMs = now;
+    triggerPressedEffective = true;
+  } else {
+    triggerPressedEffective = (uint32_t)(now - triggerLastStablePressedMs) < TRIGGER_HOLD_GRACE_MS;
+  }
 
   float x = clampf((float)(xRaw - centerX) / 2048.0f, -1.0f, 1.0f);
   float y = clampf((float)(yRaw - centerY) / 2048.0f, -1.0f, 1.0f);
@@ -852,16 +919,14 @@ void loop() {
   float angleDeg = fmodf(degrees(atan2f(y, x)) + 360.0f, 360.0f);
 
   float spread = SPREAD_AT_CENTER - clampf(ampForSpread, 0.0f, 1.0f) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE);
-
-  unsigned long now = millis();
-  bool justPressed = triggerPressedStable && !wasTriggerPressedStable;
+  bool justPressed = triggerPressedEffective && !wasTriggerPressedStable;
   if (justPressed) {
     nextPlayMs = now;
-  } else if (!triggerPressedStable) {
+  } else if (!triggerPressedEffective) {
     nextPlayMs = now + PLAY_INTERVAL_MS;
   }
 
-  if (triggerPressedStable && assetCount > 0 &&
+  if (triggerPressedEffective && assetCount > 0 &&
       (int32_t)(now - nextPlayMs) >= 0) {
     triggerAttempts++;
     int chosenGroup = pickGroupForAngle(angleDeg, spread);
@@ -905,7 +970,7 @@ void loop() {
     }
   }
 
-  wasTriggerPressedStable = triggerPressedStable;
+  wasTriggerPressedStable = triggerPressedEffective;
 
   uint32_t loopDurationUs = micros() - loopStartUs;
   updatePerfMetrics(loopDurationUs, audioDurationUs);

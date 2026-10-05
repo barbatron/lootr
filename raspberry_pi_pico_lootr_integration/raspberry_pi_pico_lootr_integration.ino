@@ -37,7 +37,7 @@ static const int8_t PIN_STATUS_LED = -1;
 
 // Playback / selection constants
 static const long I2S_SAMPLE_RATE = 44100;
-static const uint16_t PLAY_INTERVAL_MS = 115;
+static const uint16_t PLAY_INTERVAL_MS = 200;
 
 static const float DEADZONE = 0.01f;
 static const float SPREAD_AT_CENTER = 180.0f;

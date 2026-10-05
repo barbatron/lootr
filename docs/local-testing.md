@@ -16,7 +16,7 @@ Sketch:
 
 Expected success output:
 
-- CS=17 -> SD.begin OK, files=<non-zero>, raw=<non-zero>
+- CS=17 -> SD.begin OK, files=<non-zero>, wav=<non-zero>
 - Repeated [PASS ...] lines
 
 Expected failure output:
@@ -73,7 +73,7 @@ Sketch:
 Expected behavior:
 
 - Boot log prints `Ready.` and asset count
-- Hold joystick button and move stick to trigger short `.raw` playback snippets
+- Hold joystick button and move stick to trigger short `.wav` playback snippets
 - Serial prints `play:` lines with angle, amplitude, spread, and mapped target
   angle
 

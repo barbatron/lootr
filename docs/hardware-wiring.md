@@ -33,6 +33,24 @@ Notes:
 
 - Power joystick from 3.3V.
 - SW is active low when pressed.
+- No separate trigger switch is used.
+
+## Pico + MAX98357A (I2S Audio)
+
+| MAX98357A Pin | Pico GPIO | Pico Physical Pin |
+| ------------- | --------- | ----------------- |
+| BCLK          | GP10      | 14                |
+| LRC / WS      | GP11      | 15                |
+| DIN           | GP12      | 16                |
+| SD            | GP13      | 17                |
+| GND           | GND       | 23 or 38          |
+| Vin           | VBUS / 5V | 40                |
+
+Notes:
+
+- MAX98357A is driven over I2S from the Pico.
+- Keep amplifier SD high (direct or via GP13).
+- Connect the speaker only to amp `+` / `-` outputs.
 
 ## Shared Ground Requirement
 
@@ -41,7 +59,7 @@ All modules must share the same ground reference:
 - Pico GND
 - SD module GND
 - Joystick GND
-- Audio amplifier GND
+- MAX98357A GND
 
 ## Build Hygiene Checklist
 

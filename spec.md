@@ -1,7 +1,7 @@
 # Lootr — Hardware Specification & Porting Guide
 
-This file, together with proto.py, is the source of truth for Lootr selection
-logic and hardware pin expectations.
+This file is the source of truth for Lootr selection logic and hardware pin
+expectations.
 
 Primary hardware target is Raspberry Pi Pico 2020 (RP2040).
 
@@ -14,7 +14,7 @@ Primary hardware target is Raspberry Pi Pico 2020 (RP2040).
 | MCU          | Raspberry Pi Pico 2020 (RP2040)                                                         |
 | Input        | KY-023 analog thumbstick module (X, Y potentiometers + push-button)                     |
 | Storage      | MicroSD card reader (SPI interface)                                                     |
-| Audio output | External path is project-dependent; this repo primarily validates SD and input behavior |
+| Audio output | MAX98357A (I2S class-D amplifier)                                                     |
 | Misc         | MicroSD card, short jumper wires, stable USB power                                      |
 
 ---
@@ -72,18 +72,12 @@ https://github.com/earlephilhower/arduino-pico/releases/download/global/package_
 Files on the SD card should follow:
 
 ```text
-<type>-<variation>.raw
+<type>-<variation>.wav
 ```
 
 - type: category keyword
 - variation: zero-padded integer, e.g., 01, 02
-- format: 16-bit PCM, 44100 Hz, mono
-
-Convert WAV -> RAW:
-
-```bash
-sox input.wav -r 44100 -c 1 -e signed -b 16 output.raw
-```
+- format: WAV supported by AudioTools `WAVDecoder` (44.1 kHz mono recommended)
 
 ---
 
@@ -100,7 +94,7 @@ Angle convention: 0 degrees = right, 90 = down, 180 = left, 270 = up.
 
 ---
 
-## Selection Algorithm (from proto.py)
+## Selection Algorithm
 
 ### get_angular_distance(a, b)
 
@@ -131,15 +125,7 @@ spread = SPREAD_AT_CENTER - clamp(amplitude, 0, 1) * (SPREAD_AT_CENTER - SPREAD_
 
 | Constant         | Value | Description                        |
 | ---------------- | ----- | ---------------------------------- |
-| PLAY_INTERVAL_MS | 180   | Minimum ms between sample triggers |
-| DEADZONE         | 0.05  | Amplitude threshold                |
+| PLAY_INTERVAL_MS | 115   | Minimum ms between sample triggers |
+| DEADZONE         | 0.01  | Amplitude threshold                |
 | SPREAD_AT_CENTER | 180.0 | Max spread at center               |
-| SPREAD_AT_EDGE   | 20.0  | Min spread at edge                 |
-
----
-
-## Legacy Teensy Notes
-
-Teensy 4.0 PlatformIO environments remain in this repository for backward
-compatibility and prior hardware iterations. They are not the primary target for
-current bring-up.
+| SPREAD_AT_EDGE   | 15.0  | Min spread at edge                 |

@@ -218,6 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# VS Code (keep only shareable extension recommendations)
+.vscode/*
+!.vscode/extensions.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

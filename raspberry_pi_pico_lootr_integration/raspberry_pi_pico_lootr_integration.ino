@@ -37,8 +37,9 @@ static const int8_t PIN_STATUS_LED = -1;
 #endif
 
 // Playback / selection constants
-static const long I2S_SAMPLE_RATE = 44100;
-static const uint16_t PLAY_INTERVAL_MS = 260;
+static const long I2S_SAMPLE_RATE = 22050;
+static const uint16_t PLAY_INTERVAL_MS = 170;
+static const uint16_t TRIGGER_DEBOUNCE_MS = 20;
 
 static const float DEADZONE = 0.06f;
 static const float SPREAD_AT_CENTER = 180.0f;
@@ -78,7 +79,12 @@ int groupCounts[GROUP_COUNT] = {0};
 int centerX = 2048;
 int centerY = 2048;
 unsigned long lastPlayMs = 0;
+unsigned long nextPlayMs = 0;
 int lastPlayedIndex = -1;
+bool triggerRawPressed = false;
+bool triggerPressedStable = false;
+bool wasTriggerPressedStable = false;
+unsigned long triggerRawChangedMs = 0;
 uint32_t triggerAttempts = 0;
 uint32_t triggerStarted = 0;
 uint32_t triggerStolen = 0;
@@ -101,8 +107,9 @@ uint32_t perfAudioMaxUs = 0;
 const uint32_t SAMPLE_RATE = I2S_SAMPLE_RATE;
 const uint8_t CHANNELS = 1;         // Mono saves considerable RAM/processing on Pico
 const uint8_t BITS_PER_SAMPLE = 16;
+const uint16_t PLAYER_BUFFER_BYTES = 256;
 
-#define MAX_VOICES 4 // Maximum overlapping sounds allowed
+#define MAX_VOICES 1 // Monophonic debug mode: newest trigger replaces current voice
 
 // Core Physical Audio Output
 I2SStream out;                                // Final physical output
@@ -482,11 +489,11 @@ static bool playRawSnippetMixed(const char* primaryFilename,
   }
 
   if (target < 0) {
-    // Voice stealing: reuse the oldest currently playing channel.
-    uint32_t oldestStart = UINT32_MAX;
+    // Voice stealing: reuse the latest started channel.
+    uint32_t newestStart = 0;
     for (int i = 0; i < MAX_VOICES; i++) {
-      if (voices[i].isPlaying && voices[i].startedAtMs <= oldestStart) {
-        oldestStart = voices[i].startedAtMs;
+      if (voices[i].isPlaying && voices[i].startedAtMs >= newestStart) {
+        newestStart = voices[i].startedAtMs;
         target = i;
       }
     }
@@ -594,7 +601,11 @@ static void printStatus() {
   Serial.print(" verbose=");
   Serial.print(verboseEvents ? "on" : "off");
   Serial.print(" atLog=");
-  Serial.println(infoLogsEnabled ? "info" : "warning");
+  Serial.print(infoLogsEnabled ? "info" : "warning");
+  Serial.print(" trigRaw=");
+  Serial.print(triggerRawPressed ? "on" : "off");
+  Serial.print(" trigStable=");
+  Serial.println(triggerPressedStable ? "on" : "off");
 }
 
 void setup() {
@@ -608,6 +619,10 @@ void setup() {
 
   analogReadResolution(12);
   pinMode(PIN_JOY_SW, INPUT_PULLUP);
+  triggerRawPressed = (digitalRead(PIN_JOY_SW) == LOW);
+  triggerPressedStable = triggerRawPressed;
+  wasTriggerPressedStable = triggerPressedStable;
+  triggerRawChangedMs = millis();
   if (PIN_STATUS_LED >= 0) {
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
@@ -644,7 +659,9 @@ void setup() {
     voices[i].output = new MixerChannelOutput(i);
     voices[i].player = new AudioPlayer(*voices[i].source, (Print&)(*voices[i].output), voices[i].decoder);
     voices[i].player->setAutoNext(false);
-    voices[i].player->setBufferSize(256);
+    voices[i].player->setAutoFade(false);
+    voices[i].player->setDelayIfOutputFull(0);
+    voices[i].player->setBufferSize(PLAYER_BUFFER_BYTES);
     voices[i].player->setVolume(1.0);
   }  
   soundReady = true;
@@ -679,6 +696,7 @@ void setup() {
 
   calibrateJoystickCenter();
   randomSeed((uint32_t)analogRead(PIN_JOY_X) ^ ((uint32_t)analogRead(PIN_JOY_Y) << 10));
+  nextPlayMs = millis();
 
   Serial.println("Ready.");
   resetPerfMetrics();
@@ -770,17 +788,33 @@ void loop() {
   // Read inputs
   int xRaw = analogRead(PIN_JOY_X);
   int yRaw = analogRead(PIN_JOY_Y);
-  bool triggerPressed = (digitalRead(PIN_JOY_SW) == LOW);
+  bool triggerPressedNow = (digitalRead(PIN_JOY_SW) == LOW);
+  if (triggerPressedNow != triggerRawPressed) {
+    triggerRawPressed = triggerPressedNow;
+    triggerRawChangedMs = millis();
+  }
+  if ((millis() - triggerRawChangedMs) >= TRIGGER_DEBOUNCE_MS) {
+    triggerPressedStable = triggerRawPressed;
+  }
 
   float x = clampf((float)(xRaw - centerX) / 2048.0f, -1.0f, 1.0f);
   float y = clampf((float)(yRaw - centerY) / 2048.0f, -1.0f, 1.0f);
   float amp = sqrtf(x * x + y * y);
+  float ampForSpread = (amp > DEADZONE) ? amp : 0.0f;
   float angleDeg = fmodf(degrees(atan2f(y, x)) + 360.0f, 360.0f);
 
-  float spread = SPREAD_AT_CENTER - clampf(amp, 0.0f, 1.0f) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE);
+  float spread = SPREAD_AT_CENTER - clampf(ampForSpread, 0.0f, 1.0f) * (SPREAD_AT_CENTER - SPREAD_AT_EDGE);
 
   unsigned long now = millis();
-  if (triggerPressed && amp > DEADZONE && (now - lastPlayMs) >= PLAY_INTERVAL_MS && assetCount > 0) {
+  bool justPressed = triggerPressedStable && !wasTriggerPressedStable;
+  if (justPressed) {
+    nextPlayMs = now;
+  } else if (!triggerPressedStable) {
+    nextPlayMs = now + PLAY_INTERVAL_MS;
+  }
+
+  if (triggerPressedStable && assetCount > 0 &&
+      (int32_t)(now - nextPlayMs) >= 0) {
     triggerAttempts++;
     int chosenGroup = pickGroupForAngle(angleDeg, spread);
     int idx = -1;
@@ -816,7 +850,14 @@ void loop() {
     } else {
       triggerDropped++;
     }
+
+    nextPlayMs += PLAY_INTERVAL_MS;
+    if ((int32_t)(now - nextPlayMs) >= 0) {
+      nextPlayMs = now + PLAY_INTERVAL_MS;
+    }
   }
+
+  wasTriggerPressedStable = triggerPressedStable;
 
   uint32_t loopDurationUs = micros() - loopStartUs;
   updatePerfMetrics(loopDurationUs, audioDurationUs);
